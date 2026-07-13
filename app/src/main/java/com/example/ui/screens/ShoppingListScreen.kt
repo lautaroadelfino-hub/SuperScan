@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -35,6 +36,7 @@ fun ShoppingListsScreen(
     currentItems: List<SharedListItemModel>,
     onListSelected: (String) -> Unit,
     onItemToggled: (String, Boolean) -> Unit,
+    onItemDeleted: (String) -> Unit,
     onAddMember: (String) -> Unit,
     onCreateList: (String) -> Unit
 ) {
@@ -238,6 +240,13 @@ fun ShoppingListsScreen(
                                                 style = MaterialTheme.typography.bodyMedium,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = if (item.scanned) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        IconButton(onClick = { onItemDeleted(item.id) }) {
+                                            Icon(
+                                                Icons.Default.Delete,
+                                                contentDescription = "Eliminar producto",
+                                                tint = MaterialTheme.colorScheme.error
                                             )
                                         }
                                     }

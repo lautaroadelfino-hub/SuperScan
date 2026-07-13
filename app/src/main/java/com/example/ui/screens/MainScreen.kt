@@ -52,6 +52,7 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) }
     var showBottomSheet by remember { mutableStateOf(false) }
+    var productToAddToList by remember { mutableStateOf<com.example.data.ProductEntity?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
         if (bitmap != null) {
@@ -148,13 +149,8 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
                 }
                 2 -> {
                     CatalogScreen(
-                        hasCurrentList = true,
-                        onAddToCurrentList = { product -> 
-                            // Using a default quantity of 1.0 for simplicity
-                            // ListID can be fetched from viewModel
-                            val currentListId = viewModel.currentListItems.value.firstOrNull()?.id // Or another way to get list id
-                            // In real app we pass the list id, let's just pass empty for now if no list selected
-                        },
+                        hasCurrentList = shoppingLists.isNotEmpty(),
+                        onAddToCurrentList = { product -> productToAddToList = product },
                         products = allProducts,
                         onAddProduct = { barcode, name, cat, price -> viewModel.addManualProduct(barcode, name, cat, price) }
                     )
@@ -166,6 +162,7 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
                         currentItems = currentListItems,
                         onListSelected = { viewModel.selectShoppingList(it) },
                         onItemToggled = { itemId, isChecked -> viewModel.toggleShoppingItem(itemId, isChecked) },
+                        onItemDeleted = { itemId -> viewModel.removeShoppingItem(itemId) },
                         onAddMember = { email -> viewModel.addMemberToList(email) },
                         onCreateList = { name -> viewModel.createShoppingList(name) }
                     )
@@ -183,6 +180,33 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
                         Text(viewModel.loadingMessage)
                     }
                 }
+            }
+
+            if (productToAddToList != null) {
+                val product = productToAddToList!!
+                AlertDialog(
+                    onDismissRequest = { productToAddToList = null },
+                    title = { Text("Añadir a lista") },
+                    text = {
+                        Column {
+                            Text("¿A qué lista quieres añadir \"${product.productName}\"?")
+                            Spacer(modifier = Modifier.height(8.dp))
+                            shoppingLists.forEach { list ->
+                                ListItem(
+                                    headlineContent = { Text(list.name) },
+                                    supportingContent = { Text("${list.members.size} miembros") },
+                                    modifier = Modifier.clickable {
+                                        viewModel.addProductToShoppingList(list.id, product, 1.0)
+                                        productToAddToList = null
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { productToAddToList = null }) { Text("Cancelar") }
+                    }
+                )
             }
 
             if (viewModel.errorMessage != null) {

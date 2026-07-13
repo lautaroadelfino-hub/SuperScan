@@ -13,11 +13,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Colección: productos_usuarios
+    // Colección: productos_usuarios (catálogo colaborativo: los documentos
+    // no guardan userId, cualquier usuario autenticado puede aportar/corregir)
     match /productos_usuarios/{document=**} {
       allow read: if isAuth();
-      allow create: if isAuth();
-      allow update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create, update: if isAuth();
+      allow delete: if false;
     }
 
     // Colección: usuarios
@@ -38,13 +39,15 @@ service cloud.firestore {
     }
 
     // Colección: listas compartidas (en código figura como shared_lists)
+    // El array members guarda EMAILS (no UIDs), por eso se valida contra
+    // request.auth.token.email.
     match /shared_lists/{listId} {
-      allow read, update, delete: if isAuth() && request.auth.uid in resource.data.members;
-      allow create: if isAuth() && request.auth.uid in request.resource.data.members;
-      
+      allow read, update, delete: if isAuth() && request.auth.token.email in resource.data.members;
+      allow create: if isAuth() && request.auth.token.email in request.resource.data.members;
+
       // Subcolección de ítems de la lista
       match /items/{itemId} {
-        allow read, write: if isAuth() && request.auth.uid in get(/databases/$(database)/documents/shared_lists/$(listId)).data.members;
+        allow read, write: if isAuth() && request.auth.token.email in get(/databases/$(database)/documents/shared_lists/$(listId)).data.members;
       }
     }
   }
