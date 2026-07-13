@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "514170932765",
+    "project_id": "compras-super-18da9",
+    "storage_bucket": "compras-super-18da9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:514170932765:android:33d3a4217e4680325d00f4",
+        "android_client_info": {
+          "package_name": "com.aistudio.gastoscan.xqztl"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2oah4hzCHJZBv5AZiWKPkU69htG77Bbw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
