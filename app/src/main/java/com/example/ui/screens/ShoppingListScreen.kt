@@ -3,6 +3,7 @@ package com.example.ui.screens
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,7 +20,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -46,8 +49,9 @@ fun ShoppingListsScreen(
     var showCreateListDialog by remember { mutableStateOf(false) }
     var newMemberEmail by remember { mutableStateOf("") }
     var newListName by remember { mutableStateOf("") }
-    
+
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
 
     if (showCreateListDialog) {
         AlertDialog(
@@ -136,9 +140,9 @@ fun ShoppingListsScreen(
                     )
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(lists) { list ->
+                        items(lists, key = { it.id }) { list ->
                             Card(
-                                modifier = Modifier.fillMaxWidth().clickable {
+                                modifier = Modifier.fillMaxWidth().animateItem().clickable {
                                     selectedListId = list.id
                                     onListSelected(list.id)
                                 },
@@ -190,7 +194,7 @@ fun ShoppingListsScreen(
                     val groupedItems = currentItems.groupBy { it.category }
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         groupedItems.forEach { (category, items) ->
-                            item {
+                            item(key = "header_$category") {
                                 Text(
                                     text = if (category.isNotEmpty()) category else "Otros",
                                     style = MaterialTheme.typography.titleSmall,
@@ -198,14 +202,20 @@ fun ShoppingListsScreen(
                                     modifier = Modifier.padding(top = 12.dp, bottom = 4.dp, start = 4.dp)
                                 )
                             }
-                            items(items.sortedBy { it.scanned }) { item ->
+                            items(items.sortedBy { it.scanned }, key = { it.id }) { item ->
+                                val cardColor by animateColorAsState(
+                                    targetValue = if (item.scanned) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+                                    label = "item_card_color"
+                                )
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onItemToggled(item.id, !item.scanned) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (item.scanned) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
-                                    ),
+                                        .animateItem()
+                                        .clickable {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onItemToggled(item.id, !item.scanned)
+                                        },
+                                    colors = CardDefaults.cardColors(containerColor = cardColor),
                                     elevation = CardDefaults.cardElevation(defaultElevation = if (item.scanned) 0.dp else 2.dp)
                                 ) {
                                     Row(
@@ -214,7 +224,10 @@ fun ShoppingListsScreen(
                                     ) {
                                         Checkbox(
                                             checked = item.scanned,
-                                            onCheckedChange = { onItemToggled(item.id, it) }
+                                            onCheckedChange = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onItemToggled(item.id, it)
+                                            }
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column(modifier = Modifier.weight(1f)) {
@@ -242,7 +255,10 @@ fun ShoppingListsScreen(
                                                 color = if (item.scanned) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                             )
                                         }
-                                        IconButton(onClick = { onItemDeleted(item.id) }) {
+                                        IconButton(onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            onItemDeleted(item.id)
+                                        }) {
                                             Icon(
                                                 Icons.Default.Delete,
                                                 contentDescription = "Eliminar producto",

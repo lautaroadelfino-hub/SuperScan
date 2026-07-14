@@ -8,6 +8,14 @@ import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,7 +29,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,7 +98,11 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
             )
         },
         floatingActionButton = {
-            if (selectedTab == 0) {
+            AnimatedVisibility(
+                visible = selectedTab == 0,
+                enter = scaleIn() + fadeIn(),
+                exit = scaleOut() + fadeOut()
+            ) {
                 ExtendedFloatingActionButton(
                     onClick = { showBottomSheet = true },
                     icon = { Icon(Icons.Default.Add, contentDescription = "Escanear") },
@@ -132,14 +146,19 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            when (selectedTab) {
+            Crossfade(targetState = selectedTab, label = "tab_transition") { tab ->
+            when (tab) {
                 0 -> {
                     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                         Text("Historial de Compras", style = MaterialTheme.typography.titleLarge)
                         Spacer(modifier = Modifier.height(8.dp))
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(receipts) { receipt ->
-                                ReceiptCard(receipt = receipt, onDelete = { viewModel.deleteReceipt(it) })
+                            items(receipts, key = { it.id }) { receipt ->
+                                ReceiptCard(
+                                    receipt = receipt,
+                                    onDelete = { viewModel.deleteReceipt(it) },
+                                    modifier = Modifier.animateItem()
+                                )
                             }
                         }
                     }
@@ -170,6 +189,7 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
                 4 -> {
                     ProfileScreen(onLogout = onLogout)
                 }
+            }
             }
 
             if (viewModel.isProcessing) {
@@ -254,9 +274,10 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
 }
 
 @Composable
-fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit) {
+fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    val haptic = LocalHapticFeedback.current
+    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
@@ -268,19 +289,28 @@ fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Ocultar Detalles" else "Ver Detalles") }
-                IconButton(onClick = { onDelete(receipt.id) }) { Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error) }
+                IconButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDelete(receipt.id)
+                }) { Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error) }
             }
-            if (expanded) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Divider()
-                Spacer(modifier = Modifier.height(8.dp))
-                receipt.items.forEach { item ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.productName, style = MaterialTheme.typography.bodyMedium)
-                            Text("${item.quantity}x a $${String.format(Locale.US, "%.2f", item.totalPrice / item.quantity)}", style = MaterialTheme.typography.bodySmall)
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Divider()
+                    Spacer(modifier = Modifier.height(8.dp))
+                    receipt.items.forEach { item ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.productName, style = MaterialTheme.typography.bodyMedium)
+                                Text("${item.quantity}x a $${String.format(Locale.US, "%.2f", item.totalPrice / item.quantity)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Text("$${String.format(Locale.US, "%.2f", item.totalPrice)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
-                        Text("$${String.format(Locale.US, "%.2f", item.totalPrice)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
