@@ -20,7 +20,6 @@ data class TicketModel(
 
 data class TicketItemModel(
     val productName: String = "",
-    val category: String = "Varios",
     val quantity: Double = 0.0,
     val unitPrice: Double = 0.0,
     val totalPrice: Double = 0.0,
@@ -99,12 +98,7 @@ class FirebaseRepository {
     }
     
     fun getTickets(): Flow<List<TicketModel>> = callbackFlow {
-        val uid = auth.currentUser?.uid
-        if (uid == null) {
-            trySend(emptyList())
-            close()
-            return@callbackFlow
-        }
+        val uid = auth.currentUser?.uid ?: return@callbackFlow
         val subscription = db.collection("tickets")
             .whereEqualTo("userId", uid)
             .addSnapshotListener { snapshot, _ ->
@@ -179,13 +173,8 @@ class FirebaseRepository {
 
     // ... Shared Lists ...
     fun getSharedLists(): Flow<List<SharedListModel>> = callbackFlow {
-        val email = auth.currentUser?.email
-        if (email == null) {
-            trySend(emptyList())
-            close()
-            return@callbackFlow
-        }
-
+        val email = auth.currentUser?.email ?: return@callbackFlow
+        
         val subscription = db.collection("shared_lists")
             .whereArrayContains("members", email)
             .addSnapshotListener { snapshot, _ ->
@@ -272,22 +261,13 @@ class FirebaseRepository {
         itemRef.update("scanned", scanned).await()
     }
 
-    suspend fun removeItemFromList(listId: String, itemId: String) {
-        db.collection("shared_lists").document(listId).collection("items").document(itemId).delete().await()
-    }
-
     suspend fun saveUserZipCode(zipCode: String) {
         val uid = auth.currentUser?.uid ?: return
         db.collection("usuarios").document(uid).set(mapOf("zipCode" to zipCode), com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
     fun getUserZipCode(): Flow<String> = callbackFlow {
-        val uid = auth.currentUser?.uid
-        if (uid == null) {
-            trySend("")
-            close()
-            return@callbackFlow
-        }
+        val uid = auth.currentUser?.uid ?: return@callbackFlow
         val subscription = db.collection("usuarios").document(uid).addSnapshotListener { snapshot, _ ->
             val zip = snapshot?.getString("zipCode") ?: ""
             trySend(zip)
@@ -296,12 +276,7 @@ class FirebaseRepository {
     }
 
     fun getObservationsCount(): Flow<Int> = callbackFlow {
-        val uid = auth.currentUser?.uid
-        if (uid == null) {
-            trySend(0)
-            close()
-            return@callbackFlow
-        }
+        val uid = auth.currentUser?.uid ?: return@callbackFlow
         val subscription = db.collection("observaciones_precios")
             .whereEqualTo("userId", uid)
             .addSnapshotListener { snapshot, _ ->

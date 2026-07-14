@@ -1,13 +1,5 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -177,10 +169,10 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
                 item { Text("No hay productos.", style = MaterialTheme.typography.bodyMedium) }
             }
             
-            items(topProducts, key = { "prod_${it.productName}" }) { product ->
+            items(topProducts) { product ->
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).animateItem().clickable {
-                        expandedProduct = if (expandedProduct == product.productName) null else product.productName
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { 
+                        expandedProduct = if (expandedProduct == product.productName) null else product.productName 
                     },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
@@ -196,11 +188,7 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
                             )
                         }
                         
-                        AnimatedVisibility(
-                            visible = expandedProduct == product.productName,
-                            enter = expandVertically() + fadeIn(),
-                            exit = shrinkVertically() + fadeOut()
-                        ) {
+                        if (expandedProduct == product.productName) {
                             val observations = remember(receipts, product.productName) {
                                 receipts.flatMap { r -> r.items.map { it to r } }
                                     .filter { it.first.productName == product.productName }
@@ -220,16 +208,11 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
                 
                 if (byCategory.isNotEmpty()) {
                     val totalCat = byCategory.values.sum()
-                    val chartProgress = remember { Animatable(0f) }
-                    LaunchedEffect(byCategory) {
-                        chartProgress.snapTo(0f)
-                        chartProgress.animateTo(1f, animationSpec = tween(durationMillis = 800))
-                    }
+                    var currentAngle = 0f
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Canvas(modifier = Modifier.size(120.dp).padding(8.dp)) {
-                            var currentAngle = 0f
                             byCategory.toList().sortedByDescending { it.second }.forEachIndexed { index, pair ->
-                                val sweepAngle = ((pair.second / totalCat) * 360).toFloat() * chartProgress.value
+                                val sweepAngle = ((pair.second / totalCat) * 360).toFloat()
                                 drawArc(
                                     color = colors[index % colors.size],
                                     startAngle = currentAngle,
@@ -264,20 +247,15 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
             if (bySupermarket.isEmpty()) {
                 item { Text("No hay datos.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            items(bySupermarket.toList().sortedByDescending { it.second }, key = { "store_${it.first}" }) { (supermarket, total) ->
-                val barFraction by animateFloatAsState(
-                    targetValue = (total / maxSupermarket).toFloat(),
-                    animationSpec = tween(durationMillis = 600),
-                    label = "supermarket_bar"
-                )
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).animateItem()) {
+            items(bySupermarket.toList().sortedByDescending { it.second }) { (supermarket, total) ->
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(supermarket, style = MaterialTheme.typography.bodyMedium)
                         Text("$${String.format(Locale.US, "%.2f", total)}", fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     LinearProgressIndicator(
-                        progress = { barFraction },
+                        progress = { (total / maxSupermarket).toFloat() },
                         modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceVariant

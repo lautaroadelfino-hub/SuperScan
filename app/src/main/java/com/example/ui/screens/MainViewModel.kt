@@ -39,9 +39,13 @@ class MainViewModel(
     private val firebaseRepository: com.example.data.FirebaseRepository = com.example.data.FirebaseRepository()
 ) : ViewModel() {
 
-
-    // Hardcoded categories as requested (single source of truth in ReceiptScannerService)
-    val PRESET_CATEGORIES = ReceiptScannerService.PRESET_CATEGORIES
+    
+    // Hardcoded categories as requested
+    val PRESET_CATEGORIES = listOf(
+        "Lácteos y Quesos", "Bebidas", "Limpieza y Hogar", "Panadería y Dulces", 
+        "Frutas y Verduras", "Carnicería y Pescadería", "Almacén y Comestibles", 
+        "Cuidado Personal", "Mascotas", "Otros"
+    )
 
     // User preferences mock (since not in DB req)
     private val _budget = MutableStateFlow(0.0)
@@ -62,7 +66,7 @@ class MainViewModel(
                     items = t.items.map { i ->
                         ReceiptItem(
                             productName = i.productName,
-                            category = i.category,
+                            category = "Varios",
                             unitPrice = i.unitPrice,
                             totalPrice = i.totalPrice,
                             quantity = i.quantity,
@@ -111,17 +115,6 @@ class MainViewModel(
         }
     }
 
-    fun removeShoppingItem(itemId: String) {
-        val listId = _currentListId.value ?: return
-        viewModelScope.launch {
-            try {
-                firebaseRepository.removeItemFromList(listId, itemId)
-            } catch (e: Exception) {
-                errorMessage = "Error al eliminar: ${e.message}"
-            }
-        }
-    }
-
 
     fun clearError() {
         errorMessage = null
@@ -152,7 +145,6 @@ class MainViewModel(
                     items = receipt.items.map {
                         com.example.data.TicketItemModel(
                             productName = it.productName,
-                            category = it.category,
                             quantity = it.quantity,
                             unitPrice = it.unitPrice,
                             totalPrice = it.totalPrice,

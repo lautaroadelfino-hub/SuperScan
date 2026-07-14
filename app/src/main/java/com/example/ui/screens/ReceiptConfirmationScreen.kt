@@ -17,7 +17,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.domain.ExtractedReceipt
 import com.example.domain.ExtractedItem
-import com.example.domain.ReceiptScannerService
 import com.example.data.ProductModel
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -153,37 +152,6 @@ fun ReceiptConfirmationScreen(
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.weight(1f)
                                 )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            var categoryExpanded by remember { mutableStateOf(false) }
-                            ExposedDropdownMenuBox(
-                                expanded = categoryExpanded,
-                                onExpandedChange = { categoryExpanded = it }
-                            ) {
-                                OutlinedTextField(
-                                    value = item.category,
-                                    onValueChange = {},
-                                    readOnly = true,
-                                    label = { Text("Categoría") },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = categoryExpanded,
-                                    onDismissRequest = { categoryExpanded = false }
-                                ) {
-                                    ReceiptScannerService.PRESET_CATEGORIES.forEach { cat ->
-                                        DropdownMenuItem(
-                                            text = { Text(cat) },
-                                            onClick = {
-                                                val newItems = items.toMutableList()
-                                                newItems[index] = item.copy(category = cat)
-                                                items = newItems
-                                                categoryExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             if (item.barcode != null) {
