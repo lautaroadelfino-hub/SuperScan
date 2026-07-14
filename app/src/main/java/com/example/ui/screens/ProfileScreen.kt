@@ -36,12 +36,19 @@ class ProfileViewModel : ViewModel() {
     val observationsCount: StateFlow<Int> = repository.getObservationsCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    var errorMessage by mutableStateOf<String?>(null)
+        private set
+
+    fun clearError() {
+        errorMessage = null
+    }
+
     fun saveZipCode(zip: String) {
         viewModelScope.launch {
             try {
                 repository.saveUserZipCode(zip)
             } catch (e: Exception) {
-                // handle error
+                errorMessage = "No se pudo guardar el código postal: ${e.message}"
             }
         }
     }
@@ -51,8 +58,10 @@ class ProfileViewModel : ViewModel() {
             try {
                 repository.deleteUserAccount()
                 onLogout()
+            } catch (e: com.google.firebase.auth.FirebaseAuthRecentLoginRequiredException) {
+                errorMessage = "Por seguridad, debes volver a iniciar sesión antes de eliminar tu cuenta. Cierra sesión, ingresa de nuevo e inténtalo otra vez."
             } catch (e: Exception) {
-                // handle error
+                errorMessage = "No se pudo eliminar la cuenta: ${e.message}"
             }
         }
     }
@@ -138,6 +147,17 @@ fun ProfileScreen(
         }
     }
     
+    if (viewModel.errorMessage != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearError() },
+            title = { Text("Aviso") },
+            text = { Text(viewModel.errorMessage!!) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearError() }) { Text("OK") }
+            }
+        )
+    }
+
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },

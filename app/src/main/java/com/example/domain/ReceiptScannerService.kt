@@ -31,7 +31,15 @@ data class ExtractedItem(
 )
 
 class ReceiptScannerService {
-    
+
+    companion object {
+        val PRESET_CATEGORIES = listOf(
+            "Lácteos y Quesos", "Bebidas", "Limpieza y Hogar", "Panadería y Dulces",
+            "Frutas y Verduras", "Carnicería y Pescadería", "Almacén y Comestibles",
+            "Cuidado Personal", "Mascotas", "Otros"
+        )
+    }
+
     private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
     
     private val generativeModel by lazy {
@@ -61,12 +69,16 @@ class ReceiptScannerService {
           "items": [
             {
               "descripcion": "String (producto)",
+              "category": "String (categoría del producto)",
               "cantidad": Number (cantidad),
               "precioUnitario": Number (precio unitario),
               "precioTotal": Number (precio total)
             }
           ]
         }
+        Para el campo "category" de cada ítem elige EXACTAMENTE una de las siguientes opciones
+        (la que mejor describa al producto; si ninguna aplica usa "Otros"):
+        ${PRESET_CATEGORIES.joinToString(", ") { "\"$it\"" }}
     """.trimIndent()
 
     suspend fun analyzeReceiptImage(bitmap: Bitmap): Result<ExtractedReceipt> = withContext(Dispatchers.IO) {
