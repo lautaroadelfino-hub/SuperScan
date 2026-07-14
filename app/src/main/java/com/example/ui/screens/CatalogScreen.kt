@@ -1,6 +1,11 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -112,7 +117,7 @@ fun CatalogScreen(
                     val bestPrice = history.minByOrNull { it.price }
                     
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().animateItem(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         onClick = { expanded = !expanded }
                     ) {
@@ -142,20 +147,26 @@ fun CatalogScreen(
                                 }
                             }
                             
-                            if (expanded) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                if (bestPrice != null) {
-                                    Text("Mejor precio histórico:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
-                                    Text("$${String.format(Locale.US, "%.2f", bestPrice.price)} en ${bestPrice.supermarket}", style = MaterialTheme.typography.bodyMedium)
-                                }
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("Historial de Compras:", style = MaterialTheme.typography.labelMedium)
-                                history.take(5).forEach { historyItem ->
-                                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("${historyItem.date} - ${historyItem.supermarket}", style = MaterialTheme.typography.bodySmall)
-                                        Text("$${String.format(Locale.US, "%.2f", historyItem.price)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            AnimatedVisibility(
+                                visible = expanded,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                Column {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    if (bestPrice != null) {
+                                        Text("Mejor precio histórico:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                                        Text("$${String.format(Locale.US, "%.2f", bestPrice.price)} en ${bestPrice.supermarket}", style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("Historial de Compras:", style = MaterialTheme.typography.labelMedium)
+                                    history.take(5).forEach { historyItem ->
+                                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("${historyItem.date} - ${historyItem.supermarket}", style = MaterialTheme.typography.bodySmall)
+                                            Text("$${String.format(Locale.US, "%.2f", historyItem.price)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
