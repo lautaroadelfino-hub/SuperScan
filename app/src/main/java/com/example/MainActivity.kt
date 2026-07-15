@@ -27,11 +27,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val database = AppDatabase.getDatabase(this)
         val repository = LocalRepository(database)
-        
+        val prefs = getSharedPreferences("superscan_prefs", MODE_PRIVATE)
+
         val factory = object : ViewModelProvider.Factory {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-                    return MainViewModel(repository) as T
+                    return MainViewModel(repository, prefs = prefs) as T
                 }
                 if (modelClass.isAssignableFrom(AuthViewModel::class.java)) {
                     return AuthViewModel() as T

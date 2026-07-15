@@ -2,6 +2,8 @@ package com.example.data
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -26,6 +28,9 @@ data class ProductEntity(
     val supermarketHistory: List<SupermarketHistory> // JSON of List<SupermarketHistory>
 )
 
+// Modelos de UI para el historial de tickets. La fuente de verdad es Firestore
+// (FirebaseRepository.getTickets); ya no se persisten en Room.
+
 @Serializable
 data class ReceiptItem(
     val productName: String,
@@ -36,33 +41,13 @@ data class ReceiptItem(
     val barcode: String?
 )
 
-@Entity(tableName = "receipts")
+@Serializable
 data class ReceiptEntity(
-    @PrimaryKey val id: String,
+    val id: String,
     val storeName: String,
     val date: String,
     val totalAmount: Double,
-    val items: List<ReceiptItem> // JSON of List<ReceiptItem>
-)
-
-@Serializable
-data class ShoppingListItem(
-    val barcode: String?,
-    val productName: String,
-    val category: String,
-    val targetQuantity: Double,
-    val scannedQuantity: Double,
-    val expectedPrice: Double,
-    val scanned: Boolean
-)
-
-@Entity(tableName = "shopping_lists")
-data class ShoppingListEntity(
-    @PrimaryKey val id: String,
-    val name: String,
-    val date: String,
-    val isCompleted: Boolean,
-    val items: List<ShoppingListItem>
+    val items: List<ReceiptItem>
 )
 
 // --- CONVERTERS ---
@@ -77,34 +62,6 @@ class Converters {
 
     @TypeConverter
     fun toSupermarketHistoryList(value: String): List<SupermarketHistory> {
-        return try {
-            json.decodeFromString(value)
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    @TypeConverter
-    fun fromReceiptItemList(value: List<ReceiptItem>?): String {
-        return value?.let { json.encodeToString(it) } ?: "[]"
-    }
-
-    @TypeConverter
-    fun toReceiptItemList(value: String): List<ReceiptItem> {
-        return try {
-            json.decodeFromString(value)
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    @TypeConverter
-    fun fromShoppingListItemList(value: List<ShoppingListItem>?): String {
-        return value?.let { json.encodeToString(it) } ?: "[]"
-    }
-
-    @TypeConverter
-    fun toShoppingListItemList(value: String): List<ShoppingListItem> {
         return try {
             json.decodeFromString(value)
         } catch (e: Exception) {
@@ -127,52 +84,29 @@ interface ProductDao {
     suspend fun insertProduct(product: ProductEntity)
 }
 
-@Dao
-interface ReceiptDao {
-    @Query("SELECT * FROM receipts ORDER BY date DESC")
-    fun getAllReceipts(): Flow<List<ReceiptEntity>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertReceipt(receipt: ReceiptEntity)
-
-    @Query("DELETE FROM receipts WHERE id = :id")
-    suspend fun deleteReceipt(id: String)
-}
-
-@Dao
-interface ShoppingListDao {
-    @Query("SELECT * FROM shopping_lists ORDER BY date DESC")
-    fun getAllShoppingLists(): Flow<List<ShoppingListEntity>>
-
-    @Query("SELECT * FROM shopping_lists WHERE id = :id LIMIT 1")
-    fun getShoppingList(id: String): Flow<ShoppingListEntity?>
-    
-    @Query("SELECT * FROM shopping_lists WHERE id = :id LIMIT 1")
-    suspend fun getShoppingListSync(id: String): ShoppingListEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertShoppingList(list: ShoppingListEntity)
-
-    @Query("DELETE FROM shopping_lists WHERE id = :id")
-    suspend fun deleteShoppingList(id: String)
-}
-
 // --- DATABASE ---
 
 @TypeConverters(Converters::class)
 @Database(
-    entities = [ProductEntity::class, ReceiptEntity::class, ShoppingListEntity::class],
-    version = 1,
+    entities = [ProductEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
-    abstract fun receiptDao(): ReceiptDao
-    abstract fun shoppingListDao(): ShoppingListDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
+
+        // v2: los tickets y las listas de compras migraron a Firestore;
+        // se eliminan las tablas locales que quedaron sin uso.
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS receipts")
+                db.execSQL("DROP TABLE IF EXISTS shopping_lists")
+            }
+        }
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -180,7 +114,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "gasto_scan_database"
-                ).build()
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
                 INSTANCE = instance
                 instance
             }

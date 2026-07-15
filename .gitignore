@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+
+# Logs de crash del JVM
+hs_err_pid*.log

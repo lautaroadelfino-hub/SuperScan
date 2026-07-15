@@ -19,13 +19,20 @@ class AuthViewModel : ViewModel() {
     
     private val _currentUser = MutableStateFlow(auth.currentUser)
     val currentUser: StateFlow<com.google.firebase.auth.FirebaseUser?> = _currentUser
-    
-    init {
-        auth.addAuthStateListener { firebaseAuth ->
-            _currentUser.value = firebaseAuth.currentUser
-        }
+
+    private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+        _currentUser.value = firebaseAuth.currentUser
     }
-    
+
+    init {
+        auth.addAuthStateListener(authStateListener)
+    }
+
+    override fun onCleared() {
+        auth.removeAuthStateListener(authStateListener)
+        super.onCleared()
+    }
+
     fun authenticate() {
         if (email.isBlank() || password.isBlank()) {
             errorMessage = "Completa todos los campos"

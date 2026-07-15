@@ -100,7 +100,12 @@ fun SuperModeScreen(
                     }
 
                     val options = BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_EAN_8)
+                        .setBarcodeFormats(
+                            Barcode.FORMAT_EAN_13, 
+                            Barcode.FORMAT_EAN_8,
+                            Barcode.FORMAT_UPC_A,
+                            Barcode.FORMAT_UPC_E
+                        )
                         .build()
                     val scanner = BarcodeScanning.getClient(options)
 
@@ -226,7 +231,7 @@ fun SuperModeScreen(
                     scope.launch {
                         scannedBarcode?.let {
                             viewModel.saveUserProduct(it, newProductDesc, newProductPres)
-                            val prod = ProductModel(ean = it, descripcion = "$newProductDesc $newProductPres", source = "usuario")
+                            val prod = ProductModel(ean = it, descripcion = "$newProductDesc $newProductPres")
                             viewModel.addManualProductToList(listId, prod)
                             scannedProduct = prod
                             showManualAddDialog = false

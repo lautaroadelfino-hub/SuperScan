@@ -45,7 +45,7 @@ class ReceiptScannerService {
     private val generativeModel by lazy {
         val apiKey = BuildConfig.GEMINI_API_KEY
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            throw IllegalArgumentException("Falta la API Key de Gemini. Por favor, configúrala en el panel de Secrets de AI Studio.")
+            throw IllegalArgumentException("Falta la API Key de Gemini. Configúrala en el archivo .env del proyecto (ver .env.example).")
         }
         GenerativeModel(
             modelName = "gemini-3.5-flash",

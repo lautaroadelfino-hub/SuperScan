@@ -1,12 +1,16 @@
 package com.example.data
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.AggregateSource
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.PersistentCacheSettings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.tasks.await
 
 data class TicketModel(
@@ -41,9 +45,12 @@ data class PriceObservationModel(
 data class ProductModel(
     val ean: String = "",
     val descripcion: String = "",
-    val category: String = "",
-    val source: String = ""
-)
+    val precio: Double = 0.0,
+    val precio_referencia: Double = 0.0
+) {
+    // El dataset trae el valor a veces en "precio" y a veces solo en "precio_referencia"
+    fun effectivePrice(): Double = if (precio > 0.0) precio else precio_referencia
+}
 
 data class SharedListModel(
     val id: String = "",
@@ -72,7 +79,25 @@ class FirebaseRepository {
             .build()
     }
     private val auth = FirebaseAuth.getInstance()
-    
+
+    companion object {
+        // Normaliza cualquier código escaneado (UPC-A, EAN-8, etc.) a GTIN-13,
+        // que es el formato de los IDs de documento en "productos".
+        fun normalizeToGtin13(barcode: String): String {
+            val digitsOnly = barcode.filter { it.isDigit() }
+            return digitsOnly.padStart(13, '0')
+        }
+    }
+
+    // Firestore limita los WriteBatch a 500 operaciones
+    private suspend fun deleteInBatches(docs: List<DocumentSnapshot>) {
+        docs.chunked(450).forEach { chunk ->
+            val batch = db.batch()
+            chunk.forEach { batch.delete(it.reference) }
+            batch.commit().await()
+        }
+    }
+
     // ... Receipts and Observations ...
     
     suspend fun saveTicket(ticket: TicketModel) {
@@ -119,46 +144,66 @@ class FirebaseRepository {
     suspend fun deleteTicket(ticketId: String) {
         db.collection("tickets").document(ticketId).delete().await()
     }
-    
+
     suspend fun searchProductsByDescription(query: String): List<ProductModel> {
-        if (query.isBlank()) return emptyList()
-        return try {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+
+        // Firestore solo permite b\u00fasqueda por prefijo y es sensible a may\u00fasculas,
+        // as\u00ed que se consulta la query en sus variantes de capitalizaci\u00f3n m\u00e1s
+        // probables (el dataset SEPA suele estar en MAY\u00daSCULAS).
+        val locale = java.util.Locale.getDefault()
+        val variants = linkedSetOf(
+            q,
+            q.uppercase(locale),
+            q.lowercase(locale),
+            q.lowercase(locale).replaceFirstChar { it.titlecase(locale) }
+        )
+
+        val results = mutableListOf<ProductModel>()
+        for (variant in variants) {
             val snapshot = db.collection("productos")
-                .whereGreaterThanOrEqualTo("descripcion", query)
-                .whereLessThanOrEqualTo("descripcion", query + "\uf8ff")
+                .whereGreaterThanOrEqualTo("descripcion", variant)
+                .whereLessThanOrEqualTo("descripcion", variant + "\uf8ff")
                 .limit(20)
                 .get()
                 .await()
-            snapshot.documents.mapNotNull { doc ->
-                val p = doc.toObject(ProductModel::class.java)
-                p?.copy(ean = doc.id)
+
+            snapshot.documents.forEach { doc ->
+                val p = doc.toObject(ProductModel::class.java)?.copy(ean = doc.id)
+                if (p != null && results.none { it.ean == p.ean }) {
+                    results.add(p)
+                }
             }
-        } catch (e: Exception) {
-            emptyList()
         }
+        return results
     }
     
     suspend fun searchProductByEan(ean: String): ProductModel? {
+        val normalizedEan = normalizeToGtin13(ean)
         return try {
-            val doc = db.collection("productos").document(ean).get().await()
+            val doc = db.collection("productos").document(normalizedEan).get().await()
             if (doc.exists()) {
                 val p = doc.toObject(ProductModel::class.java)
-                return p?.copy(ean = doc.id, source = "oficial")
+                return p?.copy(ean = doc.id)
             }
-            val userDoc = db.collection("productos_usuarios").document(ean).get().await()
+            val userDoc = db.collection("productos_usuarios").document(normalizedEan).get().await()
             if (userDoc.exists()) {
                 val p = userDoc.toObject(ProductModel::class.java)
-                return p?.copy(ean = userDoc.id, source = "usuario")
+                return p?.copy(ean = userDoc.id)
             }
             null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             null
         }
     }
 
     suspend fun saveUserProduct(ean: String, descripcion: String, presentacion: String) {
-        val prod = ProductModel(ean = ean, descripcion = "$descripcion $presentacion".trim(), source = "usuario")
-        db.collection("productos_usuarios").document(ean).set(prod).await()
+        val normalizedEan = normalizeToGtin13(ean)
+        val prod = ProductModel(ean = normalizedEan, descripcion = "$descripcion $presentacion".trim())
+        db.collection("productos_usuarios").document(normalizedEan).set(prod).await()
     }
 
     suspend fun saveGondolaObservation(barcode: String, productName: String, price: Double) {
@@ -258,7 +303,7 @@ class FirebaseRepository {
             id = itemRef.id,
             barcode = product.ean,
             productName = product.descripcion,
-            category = product.category,
+            category = "Varios",
             targetQuantity = quantity,
             scannedQuantity = 0.0,
             expectedPrice = 0.0,
@@ -272,16 +317,33 @@ class FirebaseRepository {
         itemRef.update("scanned", scanned).await()
     }
 
+    suspend fun updateItemQuantity(listId: String, itemId: String, quantity: Double) {
+        val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
+        itemRef.update("targetQuantity", quantity).await()
+    }
+
     suspend fun removeItemFromList(listId: String, itemId: String) {
         db.collection("shared_lists").document(listId).collection("items").document(itemId).delete().await()
     }
 
-    suspend fun saveUserZipCode(zipCode: String) {
-        val uid = auth.currentUser?.uid ?: return
-        db.collection("usuarios").document(uid).set(mapOf("zipCode" to zipCode), com.google.firebase.firestore.SetOptions.merge()).await()
+    suspend fun clearListItems(listId: String) {
+        val items = db.collection("shared_lists").document(listId).collection("items").get().await()
+        deleteInBatches(items.documents)
     }
 
-    fun getUserZipCode(): Flow<String> = callbackFlow {
+    suspend fun deleteSharedList(listId: String) {
+        // First clear items
+        clearListItems(listId)
+        // Then delete the list itself
+        db.collection("shared_lists").document(listId).delete().await()
+    }
+
+    suspend fun saveUserCity(city: String) {
+        val uid = auth.currentUser?.uid ?: return
+        db.collection("usuarios").document(uid).set(mapOf("city" to city), com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
+    fun getUserCity(): Flow<String> = callbackFlow {
         val uid = auth.currentUser?.uid
         if (uid == null) {
             trySend("")
@@ -289,25 +351,51 @@ class FirebaseRepository {
             return@callbackFlow
         }
         val subscription = db.collection("usuarios").document(uid).addSnapshotListener { snapshot, _ ->
-            val zip = snapshot?.getString("zipCode") ?: ""
-            trySend(zip)
+            val city = snapshot?.getString("city") ?: ""
+            trySend(city)
         }
         awaitClose { subscription.remove() }
     }
 
-    fun getObservationsCount(): Flow<Int> = callbackFlow {
+    suspend fun saveUserName(name: String) {
+        val uid = auth.currentUser?.uid ?: return
+        db.collection("usuarios").document(uid).set(mapOf("name" to name), com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
+    fun getUserName(): Flow<String> = callbackFlow {
         val uid = auth.currentUser?.uid
         if (uid == null) {
-            trySend(0)
+            trySend("")
             close()
             return@callbackFlow
         }
-        val subscription = db.collection("observaciones_precios")
-            .whereEqualTo("userId", uid)
-            .addSnapshotListener { snapshot, _ ->
-                trySend(snapshot?.size() ?: 0)
-            }
+        val subscription = db.collection("usuarios").document(uid).addSnapshotListener { snapshot, _ ->
+            val name = snapshot?.getString("name") ?: ""
+            trySend(name)
+        }
         awaitClose { subscription.remove() }
+    }
+
+    fun getObservationsCount(): Flow<Int> = flow {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            emit(0)
+            return@flow
+        }
+        // Agregación count(): evita descargar todos los documentos solo para contarlos
+        val count = try {
+            db.collection("observaciones_precios")
+                .whereEqualTo("userId", uid)
+                .count()
+                .get(AggregateSource.SERVER)
+                .await()
+                .count.toInt()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            0
+        }
+        emit(count)
     }
 
     suspend fun deleteUserAccount() {
@@ -316,16 +404,13 @@ class FirebaseRepository {
 
         // Delete user's tickets
         val tickets = db.collection("tickets").whereEqualTo("userId", uid).get().await()
-        for (doc in tickets.documents) {
-            doc.reference.delete().await()
-        }
+        deleteInBatches(tickets.documents)
 
         // Delete user's observations
         val obs = db.collection("observaciones_precios").whereEqualTo("userId", uid).get().await()
-        for (doc in obs.documents) {
-            doc.reference.delete().await()
-        }
-        
+        deleteInBatches(obs.documents)
+
+
         // Delete user doc
         db.collection("usuarios").document(uid).delete().await()
 

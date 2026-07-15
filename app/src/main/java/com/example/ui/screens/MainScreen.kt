@@ -43,21 +43,12 @@ import com.example.ui.screens.ReceiptConfirmationScreen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
-    if (viewModel.pendingReceipt != null) {
-        ReceiptConfirmationScreen(
-            initialReceipt = viewModel.pendingReceipt!!,
-            onConfirm = { viewModel.confirmReceipt(it) },
-            onCancel = { viewModel.cancelReceipt() },
-            onSearchProducts = { viewModel.searchProducts(it) }
-        )
-        return
-    }
-
     val receipts by viewModel.receipts.collectAsState()
     val allProducts by viewModel.allProducts.collectAsState()
     val budget by viewModel.budget.collectAsState()
     val shoppingLists by viewModel.shoppingLists.collectAsState()
     val currentListItems by viewModel.currentListItems.collectAsState()
+    val remoteProducts by viewModel.remoteSearchResults.collectAsState()
     
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) }
@@ -87,188 +78,221 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("SuperScan", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
-                )
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (viewModel.pendingReceipt != null) {
+            ReceiptConfirmationScreen(
+                initialReceipt = viewModel.pendingReceipt!!,
+                onConfirm = { viewModel.confirmReceipt(it) },
+                onCancel = { viewModel.cancelReceipt() },
+                onSearchProducts = { viewModel.searchProducts(it) }
             )
-        },
-        floatingActionButton = {
-            AnimatedVisibility(
-                visible = selectedTab == 0,
-                enter = scaleIn() + fadeIn(),
-                exit = scaleOut() + fadeOut()
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = { showBottomSheet = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = "Escanear") },
-                    text = { Text("Escanear") }
-                )
-            }
-        },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.List, contentDescription = "Inicio") },
-                    label = { Text("Inicio") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.PieChart, contentDescription = "Estadísticas") },
-                    label = { Text("Estadísticas") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
-                    label = { Text("Catálogo") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
-                    label = { Text("Listas") }
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 4,
-                    onClick = { selectedTab = 4 },
-                    icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
-                    label = { Text("Perfil") }
-                )
-            }
-        }
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            Crossfade(targetState = selectedTab, label = "tab_transition") { tab ->
-            when (tab) {
-                0 -> {
-                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                        Text("Historial de Compras", style = MaterialTheme.typography.titleLarge)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(receipts, key = { it.id }) { receipt ->
-                                ReceiptCard(
-                                    receipt = receipt,
-                                    onDelete = { viewModel.deleteReceipt(it) },
-                                    modifier = Modifier.animateItem()
+        } else {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = { Text("SuperScan", fontWeight = FontWeight.Bold) },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            titleContentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                },
+                floatingActionButton = {
+                    AnimatedVisibility(
+                        visible = selectedTab == 0,
+                        enter = scaleIn() + fadeIn(),
+                        exit = scaleOut() + fadeOut()
+                    ) {
+                        ExtendedFloatingActionButton(
+                            onClick = { showBottomSheet = true },
+                            icon = { Icon(Icons.Default.Add, contentDescription = "Escanear") },
+                            text = { Text("Escanear") }
+                        )
+                    }
+                },
+                bottomBar = {
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            icon = { Icon(Icons.Default.List, contentDescription = "Inicio") },
+                            label = { Text("Inicio") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = { Icon(Icons.Default.PieChart, contentDescription = "Estadísticas") },
+                            label = { Text("Estadísticas") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
+                            label = { Text("Catálogo") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
+                            label = { Text("Listas") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 4,
+                            onClick = { selectedTab = 4 },
+                            icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
+                            label = { Text("Perfil") }
+                        )
+                    }
+                }
+            ) { padding ->
+                Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+                    Crossfade(targetState = selectedTab, label = "tab_transition") { tab ->
+                        when (tab) {
+                            0 -> {
+                                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                                    Text("Historial de Compras", style = MaterialTheme.typography.titleLarge)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(receipts, key = { it.id }) { receipt ->
+                                            ReceiptCard(
+                                                receipt = receipt,
+                                                onDelete = { viewModel.deleteReceipt(it) },
+                                                modifier = Modifier.animateItem()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            1 -> {
+                                StatsScreen(receipts = receipts, prefs = budget, onUpdateBudget = { viewModel.updateBudget(it) })
+                            }
+                            2 -> {
+                                CatalogScreen(
+                                    hasCurrentList = shoppingLists.isNotEmpty(),
+                                    onAddToCurrentList = { product -> productToAddToList = product },
+                                    localProducts = allProducts,
+                                    remoteProducts = remoteProducts,
+                                    isSearchingRemote = viewModel.isSearchingRemote,
+                                    categories = viewModel.PRESET_CATEGORIES,
+                                    onSearchQueryChange = { viewModel.performSearch(it) },
+                                    onLookupBarcode = { viewModel.lookupProductByBarcode(it) },
+                                    onAddProduct = { barcode, name, cat, price -> viewModel.addManualProduct(barcode, name, cat, price) }
                                 )
+                            }
+                            3 -> {
+                                ShoppingListsScreen(
+                                    viewModel = viewModel,
+                                    lists = shoppingLists,
+                                    currentItems = currentListItems,
+                                    onListSelected = { viewModel.selectShoppingList(it) },
+                                    onItemToggled = { itemId, isChecked -> viewModel.toggleShoppingItem(itemId, isChecked) },
+                                    onItemDeleted = { itemId -> viewModel.removeShoppingItem(itemId) },
+                                    onAddMember = { email -> viewModel.addMemberToList(email) },
+                                    onCreateList = { name -> viewModel.createShoppingList(name) }
+                                )
+                            }
+                            4 -> {
+                                ProfileScreen(onLogout = onLogout)
                             }
                         }
                     }
-                }
-                1 -> {
-                    StatsScreen(receipts = receipts, prefs = budget, onUpdateBudget = { viewModel.updateBudget(it) })
-                }
-                2 -> {
-                    CatalogScreen(
-                        hasCurrentList = shoppingLists.isNotEmpty(),
-                        onAddToCurrentList = { product -> productToAddToList = product },
-                        products = allProducts,
-                        onAddProduct = { barcode, name, cat, price -> viewModel.addManualProduct(barcode, name, cat, price) }
-                    )
-                }
-                3 -> {
-                    ShoppingListsScreen(
-                        viewModel = viewModel,
-                        lists = shoppingLists,
-                        currentItems = currentListItems,
-                        onListSelected = { viewModel.selectShoppingList(it) },
-                        onItemToggled = { itemId, isChecked -> viewModel.toggleShoppingItem(itemId, isChecked) },
-                        onItemDeleted = { itemId -> viewModel.removeShoppingItem(itemId) },
-                        onAddMember = { email -> viewModel.addMemberToList(email) },
-                        onCreateList = { name -> viewModel.createShoppingList(name) }
-                    )
-                }
-                4 -> {
-                    ProfileScreen(onLogout = onLogout)
-                }
-            }
-            }
 
-            if (viewModel.isProcessing) {
-                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f)), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(viewModel.loadingMessage)
+                    if (productToAddToList != null) {
+                        val product = productToAddToList!!
+                        var quantity by remember { mutableStateOf("1") }
+                        AlertDialog(
+                            onDismissRequest = { productToAddToList = null },
+                            title = { Text("Añadir a lista") },
+                            text = {
+                                Column {
+                                    Text("¿A qué lista quieres añadir \"${product.productName}\"?")
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    OutlinedTextField(
+                                        value = quantity,
+                                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) quantity = it },
+                                        label = { Text("Cantidad") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text("Selecciona una lista:", style = MaterialTheme.typography.labelMedium)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    shoppingLists.forEach { list ->
+                                        ListItem(
+                                            headlineContent = { Text(list.name) },
+                                            supportingContent = { Text("${if(list.members.size > 1) "Colaborativa" else "Personal"} (${list.members.size} miembros)") },
+                                            modifier = Modifier.clickable {
+                                                val qty = quantity.toDoubleOrNull() ?: 1.0
+                                                viewModel.addProductToShoppingList(list.id, product, qty)
+                                                productToAddToList = null
+                                            }
+                                        )
+                                    }
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { productToAddToList = null }) { Text("Cancelar") }
+                            }
+                        )
                     }
-                }
-            }
 
-            if (productToAddToList != null) {
-                val product = productToAddToList!!
-                AlertDialog(
-                    onDismissRequest = { productToAddToList = null },
-                    title = { Text("Añadir a lista") },
-                    text = {
-                        Column {
-                            Text("¿A qué lista quieres añadir \"${product.productName}\"?")
-                            Spacer(modifier = Modifier.height(8.dp))
-                            shoppingLists.forEach { list ->
+                    if (showBottomSheet) {
+                        ModalBottomSheet(onDismissRequest = { showBottomSheet = false }) {
+                            Column(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
+                                Text("Opciones de escaneo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
                                 ListItem(
-                                    headlineContent = { Text(list.name) },
-                                    supportingContent = { Text("${list.members.size} miembros") },
+                                    headlineContent = { Text("Cámara") },
+                                    leadingContent = { Icon(Icons.Default.AddCircle, contentDescription = null) },
                                     modifier = Modifier.clickable {
-                                        viewModel.addProductToShoppingList(list.id, product, 1.0)
-                                        productToAddToList = null
+                                        showBottomSheet = false
+                                        cameraLauncher.launch(null)
+                                    }
+                                )
+                                ListItem(
+                                    headlineContent = { Text("Galería") },
+                                    leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
+                                    modifier = Modifier.clickable {
+                                        showBottomSheet = false
+                                        imagePickerLauncher.launch("image/*")
+                                    }
+                                )
+                                ListItem(
+                                    headlineContent = { Text("PDF") },
+                                    leadingContent = { Icon(Icons.Default.Create, contentDescription = null) },
+                                    modifier = Modifier.clickable {
+                                        showBottomSheet = false
+                                        pdfPickerLauncher.launch("application/pdf")
                                     }
                                 )
                             }
                         }
-                    },
-                    confirmButton = {
-                        TextButton(onClick = { productToAddToList = null }) { Text("Cancelar") }
-                    }
-                )
-            }
-
-            if (viewModel.errorMessage != null) {
-                AlertDialog(
-                    onDismissRequest = { viewModel.clearError() },
-                    title = { Text("Aviso") },
-                    text = { Text(viewModel.errorMessage!!) },
-                    confirmButton = { TextButton(onClick = { viewModel.clearError() }) { Text("OK") } }
-                )
-            }
-
-            if (showBottomSheet) {
-                ModalBottomSheet(onDismissRequest = { showBottomSheet = false }) {
-                    Column(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
-                        Text("Opciones de escaneo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                        ListItem(
-                            headlineContent = { Text("Cámara") },
-                            leadingContent = { Icon(Icons.Default.AddCircle, contentDescription = null) },
-                            modifier = Modifier.clickable {
-                                showBottomSheet = false
-                                cameraLauncher.launch(null)
-                            }
-                        )
-                        ListItem(
-                            headlineContent = { Text("Galería") },
-                            leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
-                            modifier = Modifier.clickable {
-                                showBottomSheet = false
-                                imagePickerLauncher.launch("image/*")
-                            }
-                        )
-                        ListItem(
-                            headlineContent = { Text("PDF") },
-                            leadingContent = { Icon(Icons.Default.Create, contentDescription = null) },
-                            modifier = Modifier.clickable {
-                                showBottomSheet = false
-                                pdfPickerLauncher.launch("application/pdf")
-                            }
-                        )
                     }
                 }
             }
+        }
+
+        if (viewModel.isProcessing) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(viewModel.loadingMessage)
+                }
+            }
+        }
+
+        if (viewModel.errorMessage != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearError() },
+                title = { Text("Aviso") },
+                text = { Text(viewModel.errorMessage!!) },
+                confirmButton = { TextButton(onClick = { viewModel.clearError() }) { Text("OK") } }
+            )
         }
     }
 }
@@ -307,7 +331,8 @@ fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Mo
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.productName, style = MaterialTheme.typography.bodyMedium)
-                                Text("${item.quantity}x a $${String.format(Locale.US, "%.2f", item.totalPrice / item.quantity)}", style = MaterialTheme.typography.bodySmall)
+                                val unitPrice = if (item.quantity > 0.0) item.totalPrice / item.quantity else item.totalPrice
+                                Text("${item.quantity}x a $${String.format(Locale.US, "%.2f", unitPrice)}", style = MaterialTheme.typography.bodySmall)
                             }
                             Text("$${String.format(Locale.US, "%.2f", item.totalPrice)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
