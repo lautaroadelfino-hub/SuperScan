@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
@@ -41,6 +42,10 @@ fun ShoppingListsScreen(
     viewModel: MainViewModel,
     lists: List<SharedListModel>,
     currentItems: List<SharedListItemModel>,
+    activeListId: String?,
+    gastoDelMes: Double,
+    aportes: Int,
+    onBuscar: () -> Unit,
     onListSelected: (String) -> Unit,
     onItemToggled: (String, Boolean) -> Unit,
     onItemDeleted: (String) -> Unit,
@@ -48,6 +53,7 @@ fun ShoppingListsScreen(
     onCreateList: (String) -> Unit
 ) {
     var selectedListId by remember { mutableStateOf<String?>(null) }
+    val comparacion by viewModel.comparacionLista.collectAsState()
     var superMode by remember { mutableStateOf(false) }
     var showAddMemberDialog by remember { mutableStateOf(false) }
     var showCreateListDialog by remember { mutableStateOf(false) }
@@ -208,24 +214,89 @@ fun ShoppingListsScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
             if (selectedListId == null) {
-                Text("Listas Colaborativas", style = MaterialTheme.typography.headlineMedium)
-                Spacer(modifier = Modifier.height(16.dp))
-                if (lists.isEmpty()) {
-                    Text(
-                        "No tienes listas de compras todavía.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(lists, key = { it.id }) { list ->
+                // ---- Portada Góndola: buscador, hero del comparador, resumen ----
+                Surface(
+                    onClick = onBuscar,
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 1.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            "¿Qué estás por comprar?",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val listaActiva = lists.find { it.id == activeListId }
+                    val comp = comparacion
+                    if (listaActiva != null && comp != null) {
+                        item(key = "hero") {
+                            ComparadorListaCard(
+                                nombreLista = listaActiva.name,
+                                comparacion = comp,
+                                onClick = {
+                                    selectedListId = listaActiva.id
+                                    onListSelected(listaActiva.id)
+                                }
+                            )
+                        }
+                    }
+                    item(key = "resumen") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MiniResumenCard(
+                                titulo = "Gasto del mes",
+                                valor = Formato.precio(gastoDelMes),
+                                modifier = Modifier.weight(1f)
+                            )
+                            MiniResumenCard(
+                                titulo = "Tu aporte",
+                                valor = "$aportes precios",
+                                detalle = "informados a la comunidad",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    item(key = "titulo_listas") {
+                        Text(
+                            "Tus listas",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
+                        )
+                    }
+                    if (lists.isEmpty()) {
+                        item {
+                            Text(
+                                "Creá tu primera lista con el botón + y Góndola te dice a qué súper conviene ir.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    }
+                    items(lists, key = { it.id }) { list ->
                             Card(
                                 modifier = Modifier.fillMaxWidth().animateItem().clickable {
                                     selectedListId = list.id
                                     onListSelected(list.id)
                                 },
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                             ) {
                                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
@@ -263,7 +334,6 @@ fun ShoppingListsScreen(
                             }
                         }
                     }
-                }
             } else {
                 val list = lists.find { it.id == selectedListId }
                 val listName = list?.name ?: "Lista"
@@ -288,11 +358,10 @@ fun ShoppingListsScreen(
                     }
                 }
                 
-                val comparacion by viewModel.comparacionLista.collectAsState()
                 val comp = comparacion
                 if (comp != null) {
                     // El corazón de Góndola: la lista cotizada en cada súper
-                    ComparadorListaCard(comp)
+                    ComparadorListaCard(nombreLista = listName, comparacion = comp, onClick = {})
                     Spacer(modifier = Modifier.height(8.dp))
                 } else if (currentItems.isNotEmpty()) {
                     // Sin datos de catálogo (offline sin caché): total estimado clásico
@@ -422,35 +491,58 @@ fun ShoppingListsScreen(
     }
 }
 
-// La lista activa cotizada en cada súper: el corazón de Góndola. La más barata
-// va arriba con el ahorro contra la más cara; la cobertura ("9/12 con precio")
-// se muestra siempre porque un súper barato al que le faltan productos no
-// necesariamente gana en serio.
+// La lista activa cotizada en cada súper: el hero de Góndola, calcado del
+// mockup — tarjeta blanca, eyebrow verde, nombre del súper y total en negro
+// bien grandes, chip de ahorro, y las demás cadenas como píldoras color papel.
+// La cobertura ("9/12 con precio") se muestra siempre: un súper barato al que
+// le faltan productos no necesariamente gana en serio.
 @Composable
-private fun ComparadorListaCard(comparacion: ComparadorLista.Resultado) {
+private fun ComparadorListaCard(
+    nombreLista: String,
+    comparacion: ComparadorLista.Resultado,
+    onClick: () -> Unit
+) {
     val mejor = comparacion.cadenas.first()
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text(
-                "CONVIENE IR A",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.5.sp,
-                color = MaterialTheme.colorScheme.primary
-            )
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "CONVIENE IR A",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.5.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        "$nombreLista · ${comparacion.itemsTotal} ítems",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
             Text(
                 Cadenas.nombre(mejor.cadenaId),
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold
+                style = MaterialTheme.typography.displaySmall,
+                modifier = Modifier.padding(top = 2.dp)
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                 Text(
                     Formato.precio(mejor.total),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold
+                    style = MaterialTheme.typography.headlineMedium
                 )
                 if (comparacion.ahorroVsPeor > 0.0 && comparacion.cadenas.size > 1) {
                     Spacer(modifier = Modifier.width(10.dp))
@@ -458,9 +550,8 @@ private fun ComparadorListaCard(comparacion: ComparadorLista.Resultado) {
                         Text(
                             "ahorrás ${Formato.precio(comparacion.ahorroVsPeor)}",
                             style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -468,35 +559,42 @@ private fun ComparadorListaCard(comparacion: ComparadorLista.Resultado) {
             Text(
                 "${mejor.itemsConPrecio}/${comparacion.itemsTotal} productos con precio",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
             )
             comparacion.cadenas.drop(1).forEach { cadena ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    color = MaterialTheme.colorScheme.background,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 5.dp)
                 ) {
-                    Text(
-                        Cadenas.nombre(cadena.cadenaId),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${cadena.itemsConPrecio}/${comparacion.itemsTotal}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        Formato.precio(cadena.total),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        Formato.porcentaje(cadena.difPorcentaje),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            Cadenas.nombre(cadena.cadenaId),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "${cadena.itemsConPrecio}/${comparacion.itemsTotal}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            Formato.precio(cadena.total),
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            Formato.porcentaje(cadena.difPorcentaje),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
             Text(
@@ -505,6 +603,36 @@ private fun ComparadorListaCard(comparacion: ComparadorLista.Resultado) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun MiniResumenCard(
+    titulo: String,
+    valor: String,
+    modifier: Modifier = Modifier,
+    detalle: String? = null
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                titulo,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(valor, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+            if (detalle != null) {
+                Text(
+                    detalle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

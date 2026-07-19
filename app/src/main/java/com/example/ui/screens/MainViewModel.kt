@@ -88,6 +88,23 @@ class MainViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _currentListId = MutableStateFlow<String?>(null)
+    val currentListId: StateFlow<String?> = _currentListId
+
+    init {
+        // Lista activa automática: el hero "conviene ir a…" de la portada
+        // necesita una lista sin que el usuario tenga que entrar a ninguna.
+        viewModelScope.launch {
+            shoppingLists.collect { lists ->
+                if (_currentListId.value == null && lists.isNotEmpty()) {
+                    _currentListId.value = lists.first().id
+                }
+            }
+        }
+    }
+
+    // Cantidad de precios que este usuario informó a la comunidad
+    val misAportes: StateFlow<Int> = firebaseRepository.getObservationsCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val currentListItems: StateFlow<List<com.example.data.SharedListItemModel>> = _currentListId.flatMapLatest { listId ->

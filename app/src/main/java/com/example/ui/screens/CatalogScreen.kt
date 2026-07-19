@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -176,7 +177,8 @@ private fun CategoriasGrid(
                     val estilo = CategoriasUi.estilo(categoria.nombre)
                     Card(
                         onClick = { onCategoria(categoria.nombre) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -229,7 +231,8 @@ private fun SubcategoriasList(
                 items(subcategorias, key = { it.nombre }) { sub ->
                     Card(
                         onClick = { onSubcategoria(sub.nombre) },
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -333,10 +336,14 @@ private fun ProductosPagedList(
                 },
                 onRetry = null
             )
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            else -> LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 items(count = productos.itemCount, key = productos.itemKey { it.ean }) { i ->
                     productos[i]?.let { producto ->
-                        ProductoRow(
+                        ProductoCard(
                             producto = producto,
                             hasCurrentList = hasCurrentList,
                             onAddToList = onAddToList,
@@ -345,12 +352,12 @@ private fun ProductosPagedList(
                     }
                 }
                 when (val append = productos.loadState.append) {
-                    is LoadState.Loading -> item {
+                    is LoadState.Loading -> item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                         }
                     }
-                    is LoadState.Error -> item {
+                    is LoadState.Error -> item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
                             TextButton(onClick = { productos.retry() }) {
                                 Text("Error al cargar más: reintentar")
@@ -410,9 +417,14 @@ private fun SearchResultsList(
             )
         }
     } else {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(resultados, key = { it.ean }) { producto ->
-                ProductoRow(
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(resultados.size, key = { resultados[it].ean }) { i ->
+                val producto = resultados[i]
+                ProductoCard(
                     producto = producto,
                     hasCurrentList = hasCurrentList,
                     onAddToList = onAddToList,
@@ -423,54 +435,101 @@ private fun SearchResultsList(
     }
 }
 
-// --- Fila de producto (lista paginada y resultados de búsqueda) ---
-// Muestra el precio del catálogo (precio_publico/precio_min); la observación
-// propia del usuario, que requiere una consulta por producto, se resuelve
-// recién en el detalle para no multiplicar lecturas en las listas.
+// --- Tarjeta de producto (grilla del catálogo y de la búsqueda) ---
+// Foto de estudio grande arriba (el activo que más jerarquiza la app), nombre,
+// y el precio del catálogo. La observación propia del usuario, que requiere
+// una consulta por producto, se resuelve recién en el detalle para no
+// multiplicar lecturas en las grillas.
 
 @Composable
-private fun ProductoRow(
+private fun ProductoCard(
     producto: ProductModel,
     hasCurrentList: Boolean,
     onAddToList: (ProductModel) -> Unit,
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        onClick = onClick
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            MiniaturaProducto(imagen = producto.imagen, size = 48.dp)
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
+        Column {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(110.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                MiniaturaProducto(imagen = producto.imagen, size = 96.dp)
+            }
+            Column(modifier = Modifier.padding(horizontal = 10.dp).padding(bottom = 10.dp)) {
                 Text(
                     producto.descripcion,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.heightIn(min = 32.dp)
                 )
                 if (producto.marca.isNotBlank()) {
                     Text(
                         producto.marca,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                PrecioResumen(producto.precioCatalogo())
-            }
-            if (hasCurrentList) {
-                IconButton(onClick = { onAddToList(producto) }) {
-                    Icon(Icons.Default.Add, contentDescription = "Añadir a lista")
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    PrecioCompacto(producto.precioCatalogo())
+                    if (hasCurrentList) {
+                        IconButton(
+                            onClick = { onAddToList(producto) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Añadir a lista",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+// Variante alineada a la izquierda para las tarjetas de grilla
+@Composable
+private fun PrecioCompacto(precio: DisplayPrice) {
+    Column {
+        when (precio) {
+            is DisplayPrice.UserObservation -> {
+                Text(Formato.precio(precio.precio), style = MaterialTheme.typography.titleMedium)
+                Text("tu último precio", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            is DisplayPrice.PublicPrice -> {
+                Text(Formato.precio(precio.precio), style = MaterialTheme.typography.titleMedium)
+                Text("usuarios (${precio.n})", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            is DisplayPrice.MinPrice -> {
+                Text(Formato.precio(precio.precio), style = MaterialTheme.typography.titleMedium)
+                Text("desde · ${Cadenas.nombre(precio.cadena)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            is DisplayPrice.None -> Text(
+                "sin precio todavía",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            is DisplayPrice.Failure -> Text(
+                "—",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

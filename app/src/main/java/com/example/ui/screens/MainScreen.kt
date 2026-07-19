@@ -49,6 +49,12 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
     val budget by viewModel.budget.collectAsState()
     val shoppingLists by viewModel.shoppingLists.collectAsState()
     val currentListItems by viewModel.currentListItems.collectAsState()
+    val activeListId by viewModel.currentListId.collectAsState()
+    val misAportes by viewModel.misAportes.collectAsState()
+    val gastoDelMes = remember(receipts) {
+        val mes = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US).format(java.util.Date())
+        receipts.filter { it.date.startsWith(mes) }.sumOf { it.totalAmount }
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -200,6 +206,10 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     viewModel = viewModel,
                                     lists = shoppingLists,
                                     currentItems = currentListItems,
+                                    activeListId = activeListId,
+                                    gastoDelMes = gastoDelMes,
+                                    aportes = misAportes,
+                                    onBuscar = { selectedTab = 1 },
                                     onListSelected = { viewModel.selectShoppingList(it) },
                                     onItemToggled = { itemId, isChecked -> viewModel.toggleShoppingItem(itemId, isChecked) },
                                     onItemDeleted = { itemId -> viewModel.removeShoppingItem(itemId) },
@@ -332,7 +342,11 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
 fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
-    Card(modifier = modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
