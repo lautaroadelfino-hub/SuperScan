@@ -69,6 +69,83 @@ class PreciosTest {
     }
 }
 
+class FormatoTest {
+
+    @Test
+    fun `precio entero con miles y sin centavos`() {
+        assertEquals("$18.240", Formato.precio(18240.0))
+        assertEquals("$1.234.567", Formato.precio(1234567.0))
+        assertEquals("$950", Formato.precio(950.0))
+        assertEquals("$0", Formato.precio(0.0))
+    }
+
+    @Test
+    fun `centavos con coma solo cuando existen`() {
+        assertEquals("$1.234,50", Formato.precio(1234.5))
+        assertEquals("$999,99", Formato.precio(999.99))
+    }
+
+    @Test
+    fun `negativo lleva el signo antes del simbolo`() {
+        assertEquals("-$500", Formato.precio(-500.0))
+    }
+
+    @Test
+    fun `porcentaje con coma decimal y signo`() {
+        assertEquals("+6,8%", Formato.porcentaje(6.8))
+        assertEquals("-3,1%", Formato.porcentaje(-3.1))
+        assertEquals("0,0%", Formato.porcentaje(0.0))
+    }
+}
+
+class ComparadorListaTest {
+
+    private fun prod(vararg precios: Pair<String, Double>) = ProductModel(precios = mapOf(*precios))
+
+    @Test
+    fun `suma por cadena respetando cantidades`() {
+        val r = ComparadorLista.cotizar(
+            listOf(
+                prod("vea" to 100.0, "dia" to 120.0) to 2.0,
+                prod("vea" to 50.0) to 1.0
+            )
+        )!!
+        val vea = r.cadenas.first { it.cadenaId == "vea" }
+        assertEquals(250.0, vea.total, 0.001)
+        assertEquals(2, vea.itemsConPrecio)
+    }
+
+    @Test
+    fun `la mas barata queda primera y marca el ahorro`() {
+        val r = ComparadorLista.cotizar(
+            listOf(prod("vea" to 100.0, "dia" to 150.0, "carrefour" to 130.0) to 1.0)
+        )!!
+        assertEquals("vea", r.cadenas.first().cadenaId)
+        assertTrue(r.cadenas.first().esMejor)
+        assertEquals(50.0, r.ahorroVsPeor, 0.001)
+        assertEquals(30.0, r.cadenas.first { it.cadenaId == "carrefour" }.difPorcentaje, 0.001)
+    }
+
+    @Test
+    fun `productos sin precio o sin catalogo no suman pero cuentan en el total de items`() {
+        val r = ComparadorLista.cotizar(
+            listOf(
+                prod("vea" to 100.0) to 1.0,
+                null to 1.0,
+                prod() to 1.0
+            )
+        )!!
+        assertEquals(3, r.itemsTotal)
+        assertEquals(1, r.cadenas.first { it.cadenaId == "vea" }.itemsConPrecio)
+    }
+
+    @Test
+    fun `sin ningun precio devuelve null`() {
+        assertEquals(null, ComparadorLista.cotizar(listOf(null to 1.0, prod() to 2.0)))
+        assertEquals(null, ComparadorLista.cotizar(emptyList()))
+    }
+}
+
 class ProductModelPrecioTest {
 
     @Test

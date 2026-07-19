@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.ComparadorLista
 import com.example.data.DisplayPrice
 import com.example.data.Ean
 import com.example.data.EanLookupResult
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -92,6 +94,30 @@ class MainViewModel(
         if (listId == null) flowOf(emptyList())
         else firebaseRepository.getSharedListItems(listId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Comparador de lista: la lista activa cotizada en cada cadena.
+    // Se recalcula solo cuando cambian los ítems; los EANs se buscan por lote
+    // (resuelve desde la caché offline) y la cuenta la hace ComparadorLista.
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val comparacionLista: StateFlow<ComparadorLista.Resultado?> = currentListItems
+        .mapLatest { items ->
+            if (items.isEmpty()) return@mapLatest null
+            val porEan = try {
+                val eans = items.mapNotNull { it.barcode?.let { b -> Ean.normalizar(b) } }
+                if (eans.isEmpty()) emptyMap() else firebaseRepository.getProductosPorEans(eans)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyMap() // sin red y sin caché: la lista sigue funcionando sin comparador
+            }
+            ComparadorLista.cotizar(
+                items.map { item ->
+                    val ean = item.barcode?.let { b -> Ean.normalizar(b) }
+                    porEan[ean] to item.targetQuantity
+                }
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // Clave para productos sin código de barras: se identifican por nombre
     private fun nameKey(name: String) = "nombre:" + name.trim().lowercase(Locale.getDefault())

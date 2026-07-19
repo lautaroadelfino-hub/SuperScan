@@ -28,6 +28,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.Cadenas
+import com.example.data.ComparadorLista
+import com.example.data.Formato
 import com.example.data.SharedListItemModel
 import com.example.data.SharedListModel
 import com.journeyapps.barcodescanner.ScanContract
@@ -191,7 +194,10 @@ fun ShoppingListsScreen(
         return
     }
 
+    // (la tarjeta del comparador está definida al final del archivo)
+
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         floatingActionButton = {
             if (selectedListId == null) {
                 FloatingActionButton(onClick = { showCreateListDialog = true }) {
@@ -282,7 +288,14 @@ fun ShoppingListsScreen(
                     }
                 }
                 
-                if (currentItems.isNotEmpty()) {
+                val comparacion by viewModel.comparacionLista.collectAsState()
+                val comp = comparacion
+                if (comp != null) {
+                    // El corazón de Góndola: la lista cotizada en cada súper
+                    ComparadorListaCard(comp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                } else if (currentItems.isNotEmpty()) {
+                    // Sin datos de catálogo (offline sin caché): total estimado clásico
                     val estimatedTotal = currentItems.sumOf { it.expectedPrice * it.targetQuantity }
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer,
@@ -291,7 +304,7 @@ fun ShoppingListsScreen(
                     ) {
                         Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("Total Estimado", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("$${String.format(java.util.Locale.US, "%.2f", estimatedTotal)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                            Text(Formato.precio(estimatedTotal), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -302,7 +315,7 @@ fun ShoppingListsScreen(
                 }
                 
                 if (currentItems.isEmpty()) {
-                    Text("La lista está vacía.", modifier = Modifier.padding(16.dp))
+                    Text("La lista está vacía. Agregá productos desde el Catálogo o escaneando.", modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     val groupedItems = currentItems.groupBy { it.category }
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -374,14 +387,14 @@ fun ShoppingListsScreen(
                                             Column(horizontalAlignment = Alignment.End) {
                                                 val totalItem = item.expectedPrice * item.targetQuantity
                                                 Text(
-                                                    text = "$${String.format(java.util.Locale.US, "%.2f", totalItem)}",
+                                                    text = Formato.precio(totalItem),
                                                     style = MaterialTheme.typography.bodyLarge,
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (item.scanned) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                                 )
                                                 if (item.targetQuantity > 1.0) {
                                                     Text(
-                                                        text = "($${String.format(java.util.Locale.US, "%.2f", item.expectedPrice)} u.)",
+                                                        text = "(${Formato.precio(item.expectedPrice)} u.)",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
@@ -405,6 +418,93 @@ fun ShoppingListsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+// La lista activa cotizada en cada súper: el corazón de Góndola. La más barata
+// va arriba con el ahorro contra la más cara; la cobertura ("9/12 con precio")
+// se muestra siempre porque un súper barato al que le faltan productos no
+// necesariamente gana en serio.
+@Composable
+private fun ComparadorListaCard(comparacion: ComparadorLista.Resultado) {
+    val mejor = comparacion.cadenas.first()
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                "CONVIENE IR A",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.5.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                Cadenas.nombre(mejor.cadenaId),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    Formato.precio(mejor.total),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                if (comparacion.ahorroVsPeor > 0.0 && comparacion.cadenas.size > 1) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(6.dp)) {
+                        Text(
+                            "ahorrás ${Formato.precio(comparacion.ahorroVsPeor)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+            Text(
+                "${mejor.itemsConPrecio}/${comparacion.itemsTotal} productos con precio",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            comparacion.cadenas.drop(1).forEach { cadena ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        Cadenas.nombre(cadena.cadenaId),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${cadena.itemsConPrecio}/${comparacion.itemsTotal}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        Formato.precio(cadena.total),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        Formato.porcentaje(cadena.difPorcentaje),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            Text(
+                "Los ítems sin precio no suman al total.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
     }
 }

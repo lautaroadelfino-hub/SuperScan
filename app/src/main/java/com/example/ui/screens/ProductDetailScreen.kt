@@ -17,9 +17,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.data.Cadenas
 import com.example.data.DisplayPrice
+import com.example.data.Formato
 import com.example.data.Precios
 import com.example.data.ProductModel
-import java.util.Locale
 
 // Atribución de la imagen del detalle:
 //  - Open Food Facts (o histórico sin fuente) exige el crédito por licencia CC-BY-SA.
@@ -196,13 +196,13 @@ fun ProductDetailScreen(
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text(
-                                    "$${String.format(Locale.US, "%.2f", fila.precio)}",
+                                    Formato.precio(fila.precio),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 if (!fila.esMinimo) {
                                     Text(
-                                        String.format(Locale.US, "+%.1f%%", fila.difPorcentaje),
+                                        Formato.porcentaje(fila.difPorcentaje),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.error
                                     )

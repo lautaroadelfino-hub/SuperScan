@@ -28,6 +28,7 @@ import androidx.core.content.ContextCompat
 import com.example.data.Cadenas
 import com.example.data.DisplayPrice
 import com.example.data.EanLookupResult
+import com.example.data.Formato
 import com.example.data.ProductModel
 import com.example.ui.screens.MainViewModel
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -223,11 +224,11 @@ fun SuperModeScreen(
                     Text("Escaneado: ${scannedProduct?.descripcion}", style = MaterialTheme.typography.titleMedium)
                     when (val p = scannedPrice) {
                         is DisplayPrice.UserObservation ->
-                            Text("$${String.format(java.util.Locale.US, "%.2f", p.precio)} en ${p.comercio} (${p.fecha}) — tu último precio", style = MaterialTheme.typography.bodyMedium)
+                            Text("${Formato.precio(p.precio)} en ${p.comercio} (${p.fecha}) — tu último precio", style = MaterialTheme.typography.bodyMedium)
                         is DisplayPrice.PublicPrice ->
-                            Text("$${String.format(java.util.Locale.US, "%.2f", p.precio)} · informado por usuarios (${p.n})", style = MaterialTheme.typography.bodyMedium)
+                            Text("${Formato.precio(p.precio)} · informado por usuarios (${p.n})", style = MaterialTheme.typography.bodyMedium)
                         is DisplayPrice.MinPrice ->
-                            Text("desde $${String.format(java.util.Locale.US, "%.2f", p.precio)} en ${Cadenas.nombre(p.cadena)}", style = MaterialTheme.typography.bodyMedium)
+                            Text("desde ${Formato.precio(p.precio)} en ${Cadenas.nombre(p.cadena)}", style = MaterialTheme.typography.bodyMedium)
                         is DisplayPrice.None ->
                             Text("Sin precio todavía: podés informarlo acá", style = MaterialTheme.typography.bodyMedium)
                         else -> {}

@@ -13,17 +13,13 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,11 +31,17 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.EanLookupResult
+import com.example.data.Formato
 import com.example.data.ReceiptEntity
-import java.util.Locale
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.launch
 
-import com.example.ui.screens.ReceiptConfirmationScreen
-
+// Estructura Góndola: 4 zonas (Listas · Catálogo · Mis compras · Perfil) con el
+// botón de escaneo en el centro de la barra. El botón es CONTEXTUAL: en Listas
+// y Mis compras carga un ticket; en Catálogo escanea un producto. Nunca promete
+// dos cosas a la vez.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onLogout: () -> Unit) {
@@ -49,6 +51,7 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
     val currentListItems by viewModel.currentListItems.collectAsState()
 
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableStateOf(0) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var productToAddToList by remember { mutableStateOf<com.example.data.ProductModel?>(null) }
@@ -65,7 +68,7 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
             if (bitmap != null) {
                 viewModel.processImage(bitmap)
             } else {
-                // Should show error
+                viewModel.showError("No se pudo leer la imagen.")
             }
         }
     }
@@ -73,6 +76,22 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
     val pdfPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             viewModel.processPdf(uri, context)
+        }
+    }
+
+    // Escaneo de producto (Catálogo): busca el EAN y abre el detalle
+    val productScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            scope.launch {
+                when (val res = viewModel.lookupBarcode(result.contents)) {
+                    is EanLookupResult.Found -> catalogViewModel.abrirDetalle(res.producto)
+                    is EanLookupResult.NotFound ->
+                        viewModel.showError("El producto no está en el catálogo todavía. Podés cargarlo escaneándolo desde el Modo Súper.")
+                    is EanLookupResult.InvalidEan -> viewModel.showError("Código de barras inválido: ${res.raw}")
+                    is EanLookupResult.Offline -> viewModel.showError("Sin conexión: el producto no está en la caché local.")
+                    is EanLookupResult.Failure -> viewModel.showError(res.mensaje)
+                }
+            }
         }
     }
 
@@ -86,57 +105,87 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
             )
         } else {
             Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
                 topBar = {
                     TopAppBar(
-                        title = { Text("SuperScan", fontWeight = FontWeight.Bold) },
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "góndola",
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = (-0.5).sp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(999.dp)
+                                ) {
+                                    Text(
+                                        "Tandil",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                    )
+                                }
+                            }
+                        },
                         colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            titleContentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = MaterialTheme.colorScheme.background
                         )
                     )
                 },
                 floatingActionButton = {
-                    AnimatedVisibility(
-                        visible = selectedTab == 0,
-                        enter = scaleIn() + fadeIn(),
-                        exit = scaleOut() + fadeOut()
-                    ) {
-                        ExtendedFloatingActionButton(
+                    // Botón central contextual: dice exactamente lo que hace acá
+                    when (selectedTab) {
+                        0, 2 -> FloatingActionButton(
                             onClick = { showBottomSheet = true },
-                            icon = { Icon(Icons.Default.Add, contentDescription = "Escanear") },
-                            text = { Text("Escanear") }
-                        )
+                            shape = CircleShape,
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary
+                        ) {
+                            Icon(Icons.Default.ReceiptLong, contentDescription = "Cargar ticket")
+                        }
+                        1 -> FloatingActionButton(
+                            onClick = {
+                                productScanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) })
+                            },
+                            shape = CircleShape,
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary
+                        ) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = "Escanear producto")
+                        }
+                        else -> {}
                     }
                 },
+                floatingActionButtonPosition = FabPosition.Center,
                 bottomBar = {
-                    NavigationBar {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                         NavigationBarItem(
                             selected = selectedTab == 0,
                             onClick = { selectedTab = 0 },
-                            icon = { Icon(Icons.Default.List, contentDescription = "Inicio") },
-                            label = { Text("Inicio") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 1,
-                            onClick = { selectedTab = 1 },
-                            icon = { Icon(Icons.Default.PieChart, contentDescription = "Estadísticas") },
-                            label = { Text("Estadísticas") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 2,
-                            onClick = { selectedTab = 2 },
-                            icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
-                            label = { Text("Catálogo") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 3,
-                            onClick = { selectedTab = 3 },
                             icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
                             label = { Text("Listas") }
                         )
                         NavigationBarItem(
-                            selected = selectedTab == 4,
-                            onClick = { selectedTab = 4 },
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
+                            label = { Text("Catálogo") }
+                        )
+                        // Hueco para el botón central de escaneo
+                        Spacer(modifier = Modifier.weight(0.7f))
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            icon = { Icon(Icons.Default.History, contentDescription = "Mis compras") },
+                            label = { Text("Compras") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
                             icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
                             label = { Text("Perfil") }
                         )
@@ -147,33 +196,6 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                     Crossfade(targetState = selectedTab, label = "tab_transition") { tab ->
                         when (tab) {
                             0 -> {
-                                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                                    Text("Historial de Compras", style = MaterialTheme.typography.titleLarge)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(receipts, key = { it.id }) { receipt ->
-                                            ReceiptCard(
-                                                receipt = receipt,
-                                                onDelete = { viewModel.deleteReceipt(it) },
-                                                modifier = Modifier.animateItem()
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            1 -> {
-                                StatsScreen(receipts = receipts, prefs = budget, onUpdateBudget = { viewModel.updateBudget(it) })
-                            }
-                            2 -> {
-                                CatalogScreen(
-                                    catalogViewModel = catalogViewModel,
-                                    hasCurrentList = shoppingLists.isNotEmpty(),
-                                    onAddToList = { product -> productToAddToList = product },
-                                    onLookupBarcode = { viewModel.lookupBarcode(it) },
-                                    onError = { viewModel.showError(it) }
-                                )
-                            }
-                            3 -> {
                                 ShoppingListsScreen(
                                     viewModel = viewModel,
                                     lists = shoppingLists,
@@ -185,7 +207,22 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     onCreateList = { name -> viewModel.createShoppingList(name) }
                                 )
                             }
-                            4 -> {
+                            1 -> {
+                                CatalogScreen(
+                                    catalogViewModel = catalogViewModel,
+                                    hasCurrentList = shoppingLists.isNotEmpty(),
+                                    onAddToList = { product -> productToAddToList = product }
+                                )
+                            }
+                            2 -> {
+                                MisComprasScreen(
+                                    receipts = receipts,
+                                    budget = budget,
+                                    onUpdateBudget = { viewModel.updateBudget(it) },
+                                    onDeleteReceipt = { viewModel.deleteReceipt(it) }
+                                )
+                            }
+                            3 -> {
                                 ProfileScreen(onLogout = onLogout)
                             }
                         }
@@ -233,17 +270,17 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                     if (showBottomSheet) {
                         ModalBottomSheet(onDismissRequest = { showBottomSheet = false }) {
                             Column(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
-                                Text("Opciones de escaneo", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                                Text("Cargar ticket", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
                                 ListItem(
-                                    headlineContent = { Text("Cámara") },
-                                    leadingContent = { Icon(Icons.Default.AddCircle, contentDescription = null) },
+                                    headlineContent = { Text("Sacar foto") },
+                                    leadingContent = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
                                     modifier = Modifier.clickable {
                                         showBottomSheet = false
                                         cameraLauncher.launch(null)
                                     }
                                 )
                                 ListItem(
-                                    headlineContent = { Text("Galería") },
+                                    headlineContent = { Text("Elegir de la galería") },
                                     leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
                                     modifier = Modifier.clickable {
                                         showBottomSheet = false
@@ -251,8 +288,8 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     }
                                 )
                                 ListItem(
-                                    headlineContent = { Text("PDF") },
-                                    leadingContent = { Icon(Icons.Default.Create, contentDescription = null) },
+                                    headlineContent = { Text("Subir PDF") },
+                                    leadingContent = { Icon(Icons.Default.Description, contentDescription = null) },
                                     modifier = Modifier.clickable {
                                         showBottomSheet = false
                                         pdfPickerLauncher.launch("application/pdf")
@@ -302,7 +339,7 @@ fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Mo
                     Text(receipt.storeName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(receipt.date, style = MaterialTheme.typography.bodySmall)
                 }
-                Text("$${String.format(Locale.US, "%.2f", receipt.totalAmount)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text(Formato.precio(receipt.totalAmount), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -319,16 +356,16 @@ fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Mo
             ) {
                 Column {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Divider()
+                    HorizontalDivider()
                     Spacer(modifier = Modifier.height(8.dp))
                     receipt.items.forEach { item ->
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.productName, style = MaterialTheme.typography.bodyMedium)
                                 val unitPrice = if (item.quantity > 0.0) item.totalPrice / item.quantity else item.totalPrice
-                                Text("${item.quantity}x a $${String.format(Locale.US, "%.2f", unitPrice)}", style = MaterialTheme.typography.bodySmall)
+                                Text("${item.quantity}x a ${Formato.precio(unitPrice)}", style = MaterialTheme.typography.bodySmall)
                             }
-                            Text("$${String.format(Locale.US, "%.2f", item.totalPrice)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text(Formato.precio(item.totalPrice), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

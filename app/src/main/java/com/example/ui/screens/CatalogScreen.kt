@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -19,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Search
@@ -42,44 +40,23 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.data.Cadenas
 import com.example.data.DisplayPrice
-import com.example.data.EanLookupResult
+import com.example.data.Formato
 import com.example.data.OrdenCatalogo
 import com.example.data.ProductModel
 import com.example.data.SubcategoriaMeta
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
-import kotlinx.coroutines.launch
-import java.util.Locale
 
 // Catálogo navegable sobre productos/{ean}: grilla de categorías →
 // subcategorías → productos paginados de a 20 → detalle con comparador.
 // El buscador por prefijo está siempre visible arriba y pisa la navegación
 // mientras haya texto (salvo en el detalle, para poder abrir un resultado).
+// El escaneo de producto vive en el botón central de MainScreen.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CatalogScreen(
     catalogViewModel: CatalogViewModel,
     hasCurrentList: Boolean,
-    onAddToList: (ProductModel) -> Unit,
-    onLookupBarcode: suspend (String) -> EanLookupResult,
-    onError: (String) -> Unit
+    onAddToList: (ProductModel) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        if (result.contents != null) {
-            scope.launch {
-                when (val res = onLookupBarcode(result.contents)) {
-                    is EanLookupResult.Found -> catalogViewModel.abrirDetalle(res.producto)
-                    is EanLookupResult.NotFound ->
-                        onError("El producto no está en el catálogo todavía. Podés cargarlo escaneándolo desde el Modo Súper.")
-                    is EanLookupResult.InvalidEan -> onError("Código de barras inválido: ${res.raw}")
-                    is EanLookupResult.Offline -> onError("Sin conexión: el producto no está en la caché local.")
-                    is EanLookupResult.Failure -> onError(res.mensaje)
-                }
-            }
-        }
-    }
-
     val destino = catalogViewModel.navStack.last()
     val busquedaActiva = catalogViewModel.searchQuery.isNotBlank() &&
         destino !is CatalogViewModel.Destino.Detalle
@@ -88,21 +65,8 @@ fun CatalogScreen(
         if (busquedaActiva) catalogViewModel.limpiarBusqueda() else catalogViewModel.volver()
     }
 
-    Scaffold(
-        floatingActionButton = {
-            if (destino !is CatalogViewModel.Destino.Detalle) {
-                FloatingActionButton(
-                    onClick = {
-                        scanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) })
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = "Escanear Producto")
-                }
-            }
-        }
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedTextField(
                 value = catalogViewModel.searchQuery,
@@ -540,7 +504,7 @@ fun PrecioResumen(precio: DisplayPrice) {
 private fun PrecioConEtiqueta(precio: Double, etiqueta: String, prefijo: String = "") {
     Column(horizontalAlignment = Alignment.End) {
         Text(
-            "$prefijo$${String.format(Locale.US, "%.2f", precio)}",
+            "$prefijo${Formato.precio(precio)}",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary

@@ -302,6 +302,23 @@ class FirebaseRepository {
         ) { ProductosPagingSource(query) }.flow
     }
 
+    // --- CONSULTA 7: productos por lote de EANs (comparador de lista) ---
+    // whereIn sobre el ID del documento en tandas de 10 (límite seguro en
+    // cualquier versión del SDK). Las listas tienen decenas de ítems: 1-3 queries.
+    suspend fun getProductosPorEans(eans: List<String>): Map<String, ProductModel> {
+        val resultado = HashMap<String, ProductModel>()
+        eans.distinct().chunked(10).forEach { tanda ->
+            db.collection("productos")
+                .whereIn(com.google.firebase.firestore.FieldPath.documentId(), tanda)
+                .get()
+                .await()
+                .documents.forEach { doc ->
+                    doc.toProductModel()?.let { resultado[it.ean] = it }
+                }
+        }
+        return resultado
+    }
+
     // El alta manual escribe SIEMPRE en productos_usuarios: las reglas de
     // seguridad bloquean toda escritura en productos desde la app.
     // Descripción en MAYÚSCULAS para que la búsqueda por prefijo la encuentre.

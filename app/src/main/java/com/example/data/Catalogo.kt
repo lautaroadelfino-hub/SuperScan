@@ -107,6 +107,83 @@ object Precios {
     }
 }
 
+// Formato argentino para la UI: miles con punto, decimales con coma y solo
+// cuando existen. Los precios son la cara de la app: "$18.240", no "$18240.00".
+object Formato {
+
+    fun precio(valor: Double): String {
+        val total = kotlin.math.round(valor * 100).toLong()
+        val abs = kotlin.math.abs(total)
+        val entero = abs / 100
+        val centavos = (abs % 100).toInt()
+        val miles = entero.toString().reversed().chunked(3).joinToString(".").reversed()
+        val cuerpo = if (centavos == 0) miles else "$miles,${centavos.toString().padStart(2, '0')}"
+        return (if (total < 0) "-$" else "$") + cuerpo
+    }
+
+    /** "+6,8%" / "-3,1%"; sin signo para valores en cero */
+    fun porcentaje(valor: Double): String {
+        val cuerpo = String.format(Locale.ROOT, "%.1f", kotlin.math.abs(valor)).replace('.', ',')
+        val signo = if (valor > 0.0) "+" else if (valor < 0.0) "-" else ""
+        return "$signo$cuerpo%"
+    }
+}
+
+// Comparador de lista: cotiza la lista de compras activa en cada cadena.
+// La honestidad manda: cada cadena suma SOLO los ítems que tienen precio ahí,
+// y expone la cobertura para que el usuario juzgue (un súper "barato" al que
+// le faltan 3 productos no siempre gana en serio).
+object ComparadorLista {
+
+    data class TotalCadena(
+        val cadenaId: String,
+        val total: Double,
+        val itemsConPrecio: Int,
+        val esMejor: Boolean,
+        /** Diferencia % contra la cadena más barata (0.0 para la mejor) */
+        val difPorcentaje: Double
+    )
+
+    data class Resultado(
+        val cadenas: List<TotalCadena>,
+        val itemsTotal: Int,
+        /** Cuánto se ahorra yendo a la mejor cadena en vez de a la más cara */
+        val ahorroVsPeor: Double
+    )
+
+    /** @param items pares (producto del catálogo o null si no se encontró, cantidad) */
+    fun cotizar(items: List<Pair<ProductModel?, Double>>): Resultado? {
+        if (items.isEmpty()) return null
+        val totales = mutableMapOf<String, Double>()
+        val conteos = mutableMapOf<String, Int>()
+        items.forEach { (producto, cantidad) ->
+            producto?.precios?.forEach { (cadena, precio) ->
+                if (precio > 0.0) {
+                    totales[cadena] = (totales[cadena] ?: 0.0) + precio * cantidad
+                    conteos[cadena] = (conteos[cadena] ?: 0) + 1
+                }
+            }
+        }
+        if (totales.isEmpty()) return null
+        val orden = totales.entries.sortedWith(compareBy({ it.value }, { it.key }))
+        val mejor = orden.first().value
+        val cadenas = orden.map { (cadena, total) ->
+            TotalCadena(
+                cadenaId = cadena,
+                total = total,
+                itemsConPrecio = conteos[cadena] ?: 0,
+                esMejor = total == mejor,
+                difPorcentaje = if (mejor > 0.0) (total - mejor) / mejor * 100.0 else 0.0
+            )
+        }
+        return Resultado(
+            cadenas = cadenas,
+            itemsTotal = items.size,
+            ahorroVsPeor = orden.last().value - mejor
+        )
+    }
+}
+
 // catalogo_meta/estructura: doc único generado por el pipeline de carga con el
 // árbol de navegación (Firestore no tiene "distinct", y escanear 60k documentos
 // para derivarlo no es opción). La app lo lee una vez y queda en caché offline.
