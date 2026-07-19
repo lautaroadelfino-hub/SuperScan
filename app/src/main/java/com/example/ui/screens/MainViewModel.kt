@@ -9,8 +9,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.DisplayPrice
+import com.example.data.Ean
+import com.example.data.EanLookupResult
 import com.example.data.FirebaseRepository
 import com.example.data.LocalRepository
+import com.example.data.ObservacionPrecio
 import com.example.data.ProductEntity
 import com.example.data.ProductModel
 import com.example.data.ReceiptEntity
@@ -20,7 +24,6 @@ import com.example.domain.ExtractedReceipt
 import com.example.domain.ReceiptScannerService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,7 +33,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
 import java.util.Locale
 
 class MainViewModel(
@@ -43,9 +45,6 @@ class MainViewModel(
     private companion object {
         const val BUDGET_PREF_KEY = "budget"
     }
-
-    // Hardcoded categories as requested (single source of truth in ReceiptScannerService)
-    val PRESET_CATEGORIES = ReceiptScannerService.PRESET_CATEGORIES
 
     // Presupuesto del usuario, persistido en SharedPreferences
     private val _budget = MutableStateFlow(prefs?.getFloat(BUDGET_PREF_KEY, 0f)?.toDouble() ?: 0.0)
@@ -94,64 +93,27 @@ class MainViewModel(
         else firebaseRepository.getSharedListItems(listId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Catálogo personal: solo los productos del usuario (Room).
-    // Los resultados del catálogo global llegan por remoteSearchResults.
-    val allProducts: StateFlow<List<ProductEntity>> = repository.getProducts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    private val _remoteSearchResults = MutableStateFlow<List<ProductEntity>>(emptyList())
-    val remoteSearchResults: StateFlow<List<ProductEntity>> = _remoteSearchResults
-
-    var isSearchingRemote by mutableStateOf(false)
-        private set
-
-    private var searchJob: Job? = null
-
-    private fun ProductModel.toProductEntity() = ProductEntity(
-        barcode = ean,
-        productName = descripcion,
-        category = "Varios",
-        lastPrice = effectivePrice(),
-        supermarketHistory = emptyList()
-    )
-
     // Clave para productos sin código de barras: se identifican por nombre
     private fun nameKey(name: String) = "nombre:" + name.trim().lowercase(Locale.getDefault())
 
-    fun performSearch(query: String) {
-        searchJob?.cancel()
-        if (query.isBlank()) {
-            _remoteSearchResults.value = emptyList()
-            isSearchingRemote = false
-            return
+    // Busca un código escaneado: primero en Firestore (productos →
+    // productos_usuarios; el catálogo rico con precios por cadena, marca e
+    // imagen, y resuelve offline desde la caché). El catálogo personal de Room
+    // queda como último recurso para códigos que no están en ninguna colección.
+    suspend fun lookupBarcode(rawBarcode: String): EanLookupResult {
+        val normalized = Ean.normalizar(rawBarcode)
+            ?: return EanLookupResult.InvalidEan(rawBarcode)
+        val remoto = firebaseRepository.lookupProductByEan(rawBarcode)
+        if (remoto is EanLookupResult.Found || remoto is EanLookupResult.Failure) {
+            return remoto
         }
-
-        searchJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(500) // Debounce
-            isSearchingRemote = true
-            try {
-                val results = firebaseRepository.searchProductsByDescription(query)
-                _remoteSearchResults.value = results.map { it.toProductEntity() }
-            } catch (e: CancellationException) {
-                // Una búsqueda más nueva canceló a esta: no pisar resultados ni mostrar error
-                throw e
-            } catch (e: Exception) {
-                errorMessage = "Error en búsqueda remota: ${e.message}"
-            } finally {
-                isSearchingRemote = false
-            }
+        val local = repository.getProduct(rawBarcode) ?: repository.getProduct(normalized)
+        if (local != null) {
+            return EanLookupResult.Found(
+                ProductModel(ean = normalized, descripcion = local.productName)
+            )
         }
-    }
-
-    // Busca un código escaneado primero en el catálogo personal (crudo y
-    // normalizado a GTIN-13) y después en Firestore.
-    suspend fun lookupProductByBarcode(rawBarcode: String): ProductEntity? {
-        val normalized = FirebaseRepository.normalizeToGtin13(rawBarcode)
-        repository.getProduct(rawBarcode)?.let { return it }
-        if (normalized != rawBarcode) {
-            repository.getProduct(normalized)?.let { return it }
-        }
-        return firebaseRepository.searchProductByEan(rawBarcode)?.toProductEntity()
+        return remoto // NotFound u Offline
     }
 
     var isProcessing by mutableStateOf(false)
@@ -234,6 +196,10 @@ class MainViewModel(
         errorMessage = null
     }
 
+    fun showError(message: String) {
+        errorMessage = message
+    }
+
     fun deleteReceipt(receiptId: String) {
         viewModelScope.launch {
             try {
@@ -284,8 +250,7 @@ class MainViewModel(
     private suspend fun updateLocalCatalogFromReceipt(receipt: ExtractedReceipt) {
         receipt.items.forEach { item ->
             if (item.productName.isBlank()) return@forEach
-            val key = item.barcode?.takeIf { it.isNotBlank() }
-                ?.let { FirebaseRepository.normalizeToGtin13(it) }
+            val key = item.barcode?.let { Ean.normalizar(it) }
                 ?: nameKey(item.productName)
             val newHistoryItem = SupermarketHistory(
                 supermarket = receipt.storeName,
@@ -316,7 +281,7 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 isProcessing = true
-                loadingMessage = "Enviando imagen a Gemini Flash..."
+                loadingMessage = "Enviando imagen a Gemini 3.5 Flash..."
                 errorMessage = null
                 val result = scannerService.analyzeReceiptImage(bitmap)
                 result.onSuccess { extracted ->
@@ -334,7 +299,7 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 isProcessing = true
-                loadingMessage = "Enviando pdf a Gemini Flash..."
+                loadingMessage = "Enviando pdf a Gemini 3.5 Flash..."
                 errorMessage = null
                 try {
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
@@ -358,13 +323,48 @@ class MainViewModel(
         }
     }
 
-    suspend fun searchProducts(query: String) = firebaseRepository.searchProductsByDescription(query)
+    suspend fun searchProducts(query: String): List<ProductModel> = try {
+        firebaseRepository.searchProductsByDescription(query)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        errorMessage = "Error buscando productos: ${e.message}"
+        emptyList()
+    }
 
-    suspend fun searchProductByEan(ean: String) = firebaseRepository.searchProductByEan(ean)
-    suspend fun saveUserProduct(ean: String, desc: String, pres: String) = firebaseRepository.saveUserProduct(ean, desc, pres)
-    suspend fun saveGondolaObservation(ean: String, name: String, price: Double) = firebaseRepository.saveGondolaObservation(ean, name, price)
+    // Precio a mostrar: observación propia más reciente, o precio de referencia
+    suspend fun getDisplayPrice(ean: String): DisplayPrice = firebaseRepository.getDisplayPrice(ean)
 
-    // Funciones para Listas de Compras y Catálogo Manual
+    suspend fun getPriceHistory(ean: String): List<ObservacionPrecio> = try {
+        firebaseRepository.getPriceHistory(ean)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Si falta el índice compuesto, el mensaje de Firestore trae el link de creación
+        errorMessage = "Error cargando historial: ${e.message}"
+        emptyList()
+    }
+
+    suspend fun saveUserProduct(ean: String, desc: String, pres: String): ProductModel? = try {
+        firebaseRepository.saveUserProduct(ean, desc, pres)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        errorMessage = "No se pudo guardar el producto: ${e.message}"
+        null
+    }
+
+    suspend fun saveGondolaObservation(ean: String, name: String, price: Double): Boolean = try {
+        firebaseRepository.saveGondolaObservation(ean, name, price)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        errorMessage = "No se pudo guardar el precio: ${e.message}"
+        false
+    }
+
+    // Funciones para Listas de Compras
     fun createShoppingList(name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -375,7 +375,7 @@ class MainViewModel(
         }
     }
 
-    fun addProductToShoppingList(listId: String, product: ProductEntity, quantity: Double) {
+    fun addProductToShoppingList(listId: String, product: ProductModel, quantity: Double) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 firebaseRepository.addProductToList(listId, product, quantity)
@@ -391,34 +391,6 @@ class MainViewModel(
                 firebaseRepository.addProductToList(listId, product, 1.0)
             } catch(e: Exception) {
                 errorMessage = e.message
-            }
-        }
-    }
-
-    fun addManualProduct(barcode: String, name: String, category: String, price: Double) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val key = if (barcode.isBlank()) nameKey(name)
-                          else FirebaseRepository.normalizeToGtin13(barcode)
-                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
-                val newEntry = SupermarketHistory(supermarket = "Manual", price = price, quantity = 1.0, date = dateStr)
-                // Si el producto ya existe se conserva y amplía su historial
-                val existing = repository.getProduct(key)
-                val product = existing?.copy(
-                    productName = name,
-                    category = category,
-                    lastPrice = price,
-                    supermarketHistory = existing.supermarketHistory + newEntry
-                ) ?: ProductEntity(
-                    barcode = key,
-                    productName = name,
-                    category = category,
-                    lastPrice = price,
-                    supermarketHistory = listOf(newEntry)
-                )
-                repository.saveProduct(product)
-            } catch (e: Exception) {
-                errorMessage = "Error al guardar producto: ${e.message}"
             }
         }
     }

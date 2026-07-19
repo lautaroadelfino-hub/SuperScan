@@ -13,6 +13,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Colección: catalogo_meta (estructura del catálogo: categorías,
+    // subcategorías y marcas; la genera el pipeline de carga, no la app)
+    match /catalogo_meta/{document=**} {
+      allow read: if isAuth();
+      // La estructura se sube con scripts/generar_estructura.py, que necesita
+      // una excepción temporal acá (ver el docstring del script).
+      allow write: if false;
+    }
+
     // Colección: productos_usuarios (catálogo colaborativo: los documentos
     // no guardan userId, cualquier usuario autenticado puede aportar/corregir)
     match /productos_usuarios/{document=**} {
@@ -33,9 +42,14 @@ service cloud.firestore {
     }
 
     // Colección: observaciones_precios
+    // Estructura: { ean, descripcionCruda, comercio, precio, fecha, fuente, uid }.
+    // La lectura es abierta a usuarios autenticados: el historial de precios de
+    // un producto se construye con las observaciones de TODOS los usuarios.
+    // Escribir/borrar solo lo propio (validado contra el campo uid).
     match /observaciones_precios/{obsId} {
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if isAuth() && resource.data.userId == request.auth.uid;
+      allow read: if isAuth();
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAuth() && resource.data.uid == request.auth.uid;
     }
 
     // Colección: listas compartidas (en código figura como shared_lists)

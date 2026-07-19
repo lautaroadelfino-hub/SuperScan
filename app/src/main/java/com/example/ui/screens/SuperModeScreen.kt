@@ -25,6 +25,9 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.example.data.Cadenas
+import com.example.data.DisplayPrice
+import com.example.data.EanLookupResult
 import com.example.data.ProductModel
 import com.example.ui.screens.MainViewModel
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -52,6 +55,7 @@ fun SuperModeScreen(
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
     var scannedProduct by remember { mutableStateOf<ProductModel?>(null) }
+    var scannedPrice by remember { mutableStateOf<DisplayPrice?>(null) }
     var scannedBarcode by remember { mutableStateOf<String?>(null) }
     var isProcessingBarcode by remember { mutableStateOf(false) }
 
@@ -129,22 +133,41 @@ fun SuperModeScreen(
                                                 vibrateAndCheck()
                                                 scannedBarcode = barcode
                                                 scope.launch {
-                                                    val prod = viewModel.searchProductByEan(barcode)
-                                                    if (prod != null) {
-                                                        scannedProduct = prod
-                                                        // Toggle or add item to list
-                                                        val items = viewModel.currentListItems.value
-                                                        val existing = items.find { it.barcode == barcode }
-                                                        if (existing != null) {
-                                                            if (!existing.scanned) {
-                                                                viewModel.toggleShoppingItem(existing.id, true)
+                                                    when (val res = viewModel.lookupBarcode(barcode)) {
+                                                        is EanLookupResult.Found -> {
+                                                            val prod = res.producto
+                                                            scannedProduct = prod
+                                                            scannedBarcode = prod.ean
+                                                            scannedPrice = viewModel.getDisplayPrice(prod.ean)
+                                                            // Toggle or add item to list (los ítems guardan el ean normalizado)
+                                                            val items = viewModel.currentListItems.value
+                                                            val existing = items.find { it.barcode == prod.ean }
+                                                            if (existing != null) {
+                                                                if (!existing.scanned) {
+                                                                    viewModel.toggleShoppingItem(existing.id, true)
+                                                                }
+                                                            } else {
+                                                                viewModel.addManualProductToList(listId, prod)
                                                             }
-                                                        } else {
-                                                            viewModel.addManualProductToList(listId, prod)
+                                                            showGondolaDialog = true
                                                         }
-                                                        showGondolaDialog = true
-                                                    } else {
-                                                        showManualAddDialog = true
+                                                        is EanLookupResult.NotFound -> {
+                                                            // ean ya normalizado: el alta manual escribe en productos_usuarios
+                                                            scannedBarcode = res.ean
+                                                            showManualAddDialog = true
+                                                        }
+                                                        is EanLookupResult.InvalidEan -> {
+                                                            viewModel.showError("Código de barras inválido: ${res.raw}")
+                                                            isProcessingBarcode = false
+                                                        }
+                                                        is EanLookupResult.Offline -> {
+                                                            viewModel.showError("Sin conexión: el producto no está en la caché local.")
+                                                            isProcessingBarcode = false
+                                                        }
+                                                        is EanLookupResult.Failure -> {
+                                                            viewModel.showError(res.mensaje)
+                                                            isProcessingBarcode = false
+                                                        }
                                                     }
                                                 }
                                             }
@@ -198,10 +221,22 @@ fun SuperModeScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Escaneado: ${scannedProduct?.descripcion}", style = MaterialTheme.typography.titleMedium)
+                    when (val p = scannedPrice) {
+                        is DisplayPrice.UserObservation ->
+                            Text("$${String.format(java.util.Locale.US, "%.2f", p.precio)} en ${p.comercio} (${p.fecha}) — tu último precio", style = MaterialTheme.typography.bodyMedium)
+                        is DisplayPrice.PublicPrice ->
+                            Text("$${String.format(java.util.Locale.US, "%.2f", p.precio)} · informado por usuarios (${p.n})", style = MaterialTheme.typography.bodyMedium)
+                        is DisplayPrice.MinPrice ->
+                            Text("desde $${String.format(java.util.Locale.US, "%.2f", p.precio)} en ${Cadenas.nombre(p.cadena)}", style = MaterialTheme.typography.bodyMedium)
+                        is DisplayPrice.None ->
+                            Text("Sin precio todavía: podés informarlo acá", style = MaterialTheme.typography.bodyMedium)
+                        else -> {}
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { 
+                    Button(onClick = {
                         isProcessingBarcode = false
-                        scannedProduct = null 
+                        scannedProduct = null
+                        scannedPrice = null
                     }, modifier = Modifier.fillMaxWidth()) {
                         Text("Continuar escaneando")
                     }
@@ -227,18 +262,28 @@ fun SuperModeScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    scope.launch {
-                        scannedBarcode?.let {
-                            viewModel.saveUserProduct(it, newProductDesc, newProductPres)
-                            val prod = ProductModel(ean = it, descripcion = "$newProductDesc $newProductPres")
-                            viewModel.addManualProductToList(listId, prod)
-                            scannedProduct = prod
-                            showManualAddDialog = false
-                            showGondolaDialog = true
+                Button(
+                    enabled = newProductDesc.isNotBlank(),
+                    onClick = {
+                        scope.launch {
+                            scannedBarcode?.let { code ->
+                                // Escribe en productos_usuarios (productos es solo lectura)
+                                val saved = viewModel.saveUserProduct(code, newProductDesc, newProductPres)
+                                if (saved != null) {
+                                    viewModel.addManualProductToList(listId, saved)
+                                    scannedProduct = saved
+                                    scannedPrice = null
+                                    showManualAddDialog = false
+                                    showGondolaDialog = true
+                                } else {
+                                    // El error ya quedó en viewModel.errorMessage
+                                    showManualAddDialog = false
+                                    isProcessingBarcode = false
+                                }
+                            }
                         }
                     }
-                }) { Text("Guardar") }
+                ) { Text("Guardar") }
             },
             dismissButton = {
                 TextButton(onClick = { 

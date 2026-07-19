@@ -42,18 +42,16 @@ import com.example.ui.screens.ReceiptConfirmationScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
+fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onLogout: () -> Unit) {
     val receipts by viewModel.receipts.collectAsState()
-    val allProducts by viewModel.allProducts.collectAsState()
     val budget by viewModel.budget.collectAsState()
     val shoppingLists by viewModel.shoppingLists.collectAsState()
     val currentListItems by viewModel.currentListItems.collectAsState()
-    val remoteProducts by viewModel.remoteSearchResults.collectAsState()
-    
+
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) }
     var showBottomSheet by remember { mutableStateOf(false) }
-    var productToAddToList by remember { mutableStateOf<com.example.data.ProductEntity?>(null) }
+    var productToAddToList by remember { mutableStateOf<com.example.data.ProductModel?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
         if (bitmap != null) {
@@ -168,15 +166,11 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
                             }
                             2 -> {
                                 CatalogScreen(
+                                    catalogViewModel = catalogViewModel,
                                     hasCurrentList = shoppingLists.isNotEmpty(),
-                                    onAddToCurrentList = { product -> productToAddToList = product },
-                                    localProducts = allProducts,
-                                    remoteProducts = remoteProducts,
-                                    isSearchingRemote = viewModel.isSearchingRemote,
-                                    categories = viewModel.PRESET_CATEGORIES,
-                                    onSearchQueryChange = { viewModel.performSearch(it) },
-                                    onLookupBarcode = { viewModel.lookupProductByBarcode(it) },
-                                    onAddProduct = { barcode, name, cat, price -> viewModel.addManualProduct(barcode, name, cat, price) }
+                                    onAddToList = { product -> productToAddToList = product },
+                                    onLookupBarcode = { viewModel.lookupBarcode(it) },
+                                    onError = { viewModel.showError(it) }
                                 )
                             }
                             3 -> {
@@ -205,7 +199,7 @@ fun MainScreen(viewModel: MainViewModel, onLogout: () -> Unit) {
                             title = { Text("Añadir a lista") },
                             text = {
                                 Column {
-                                    Text("¿A qué lista quieres añadir \"${product.productName}\"?")
+                                    Text("¿A qué lista quieres añadir \"${product.descripcion}\"?")
                                     Spacer(modifier = Modifier.height(16.dp))
                                     OutlinedTextField(
                                         value = quantity,
