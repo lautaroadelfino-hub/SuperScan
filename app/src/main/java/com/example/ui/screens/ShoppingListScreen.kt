@@ -202,17 +202,7 @@ fun ShoppingListsScreen(
 
     // (la tarjeta del comparador está definida al final del archivo)
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        floatingActionButton = {
-            if (selectedListId == null) {
-                FloatingActionButton(onClick = { showCreateListDialog = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Nueva Lista")
-                }
-            }
-        }
-    ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             if (selectedListId == null) {
                 // ---- Portada Góndola: buscador, hero del comparador, resumen ----
                 Surface(
@@ -242,7 +232,10 @@ fun ShoppingListsScreen(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
                     val listaActiva = lists.find { it.id == activeListId }
                     val comp = comparacion
                     if (listaActiva != null && comp != null) {
@@ -273,11 +266,23 @@ fun ShoppingListsScreen(
                         }
                     }
                     item(key = "titulo_listas") {
-                        Text(
-                            "Tus listas",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Tus listas", style = MaterialTheme.typography.titleLarge)
+                            FilledTonalIconButton(
+                                onClick = { showCreateListDialog = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Nueva lista",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                     if (lists.isEmpty()) {
                         item {
@@ -489,8 +494,6 @@ fun ShoppingListsScreen(
             }
         }
     }
-}
-
 // La lista activa cotizada en cada súper: el hero de Góndola, calcado del
 // mockup — tarjeta blanca, eyebrow verde, nombre del súper y total en negro
 // bien grandes, chip de ahorro, y las demás cadenas como píldoras color papel.

@@ -1,6 +1,5 @@
 package com.example.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -62,10 +61,12 @@ private val DarkColorScheme =
 
 @Composable
 fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
+  // El papel claro con tarjetas blancas ES la identidad Góndola: se fuerza
+  // claro. El esquema oscuro queda definido para ofrecerlo a futuro como
+  // preferencia del usuario, no como default del sistema.
+  darkTheme: Boolean = false,
   content: @Composable () -> Unit,
 ) {
-  // Modo oscuro real: sigue la preferencia del sistema (antes se forzaba claro)
   val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
   MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

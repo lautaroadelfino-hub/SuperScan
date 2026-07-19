@@ -142,59 +142,66 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                         )
                     )
                 },
-                floatingActionButton = {
-                    // Botón central contextual: dice exactamente lo que hace acá
-                    when (selectedTab) {
-                        0, 2 -> FloatingActionButton(
-                            onClick = { showBottomSheet = true },
-                            shape = CircleShape,
-                            containerColor = MaterialTheme.colorScheme.tertiary,
-                            contentColor = MaterialTheme.colorScheme.onTertiary
-                        ) {
-                            Icon(Icons.Default.ReceiptLong, contentDescription = "Cargar ticket")
-                        }
-                        1 -> FloatingActionButton(
-                            onClick = {
-                                productScanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) })
-                            },
-                            shape = CircleShape,
-                            containerColor = MaterialTheme.colorScheme.tertiary,
-                            contentColor = MaterialTheme.colorScheme.onTertiary
-                        ) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = "Escanear producto")
-                        }
-                        else -> {}
-                    }
-                },
-                floatingActionButtonPosition = FabPosition.Center,
                 bottomBar = {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                        NavigationBarItem(
-                            selected = selectedTab == 0,
-                            onClick = { selectedTab = 0 },
-                            icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
-                            label = { Text("Listas") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 1,
-                            onClick = { selectedTab = 1 },
-                            icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
-                            label = { Text("Catálogo") }
-                        )
-                        // Hueco para el botón central de escaneo
-                        Spacer(modifier = Modifier.weight(0.7f))
-                        NavigationBarItem(
-                            selected = selectedTab == 2,
-                            onClick = { selectedTab = 2 },
-                            icon = { Icon(Icons.Default.History, contentDescription = "Mis compras") },
-                            label = { Text("Compras") }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 3,
-                            onClick = { selectedTab = 3 },
-                            icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
-                            label = { Text("Perfil") }
-                        )
+                    // Barra con el botón de escaneo ENCASTRADO en el centro,
+                    // mitad adentro mitad afuera, como en el diseño de marca
+                    Box {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.padding(top = 26.dp)
+                        ) {
+                            NavigationBarItem(
+                                selected = selectedTab == 0,
+                                onClick = { selectedTab = 0 },
+                                icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
+                                label = { Text("Listas") }
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 1,
+                                onClick = { selectedTab = 1 },
+                                icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
+                                label = { Text("Catálogo") }
+                            )
+                            // Hueco para el botón central de escaneo
+                            Spacer(modifier = Modifier.weight(0.8f))
+                            NavigationBarItem(
+                                selected = selectedTab == 2,
+                                onClick = { selectedTab = 2 },
+                                icon = { Icon(Icons.Default.History, contentDescription = "Mis compras") },
+                                label = { Text("Compras") }
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 },
+                                icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
+                                label = { Text("Perfil") }
+                            )
+                        }
+                        // Botón contextual: dice exactamente lo que hace acá
+                        if (selectedTab != 3) {
+                            FloatingActionButton(
+                                onClick = {
+                                    if (selectedTab == 1) {
+                                        productScanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) })
+                                    } else {
+                                        showBottomSheet = true
+                                    }
+                                },
+                                shape = CircleShape,
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary,
+                                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .size(60.dp)
+                            ) {
+                                Icon(
+                                    if (selectedTab == 1) Icons.Default.QrCodeScanner else Icons.Default.ReceiptLong,
+                                    contentDescription = if (selectedTab == 1) "Escanear producto" else "Cargar ticket",
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
                     }
                 }
             ) { padding ->

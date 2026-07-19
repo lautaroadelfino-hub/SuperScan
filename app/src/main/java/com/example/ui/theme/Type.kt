@@ -16,7 +16,7 @@ val Typography =
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Black,
         fontSize = 34.sp,
-        lineHeight = 38.sp,
+        lineHeight = 42.sp,
         letterSpacing = (-1).sp,
         fontFeatureSettings = "tnum",
       ),
