@@ -127,6 +127,46 @@ class ComparadorListaTest {
     }
 
     @Test
+    fun `una cadena con menos productos no gana solo por tener menos`() {
+        // dia tiene 1 solo producto barato; carrefour tiene los 3. Que "dia"
+        // sume menos NO lo hace conveniente: no se puede comprar todo ahí.
+        val r = ComparadorLista.cotizar(
+            listOf(
+                prod("carrefour" to 1000.0, "dia" to 900.0) to 1.0,
+                prod("carrefour" to 1000.0) to 1.0,
+                prod("carrefour" to 1000.0) to 1.0
+            )
+        )!!
+        val ganadora = r.cadenas.first()
+        assertEquals("carrefour", ganadora.cadenaId)
+        assertTrue(ganadora.esMejor)
+        assertEquals(3, r.mejorCobertura)
+
+        val dia = r.cadenas.first { it.cadenaId == "dia" }
+        assertFalse(dia.esMejor)
+        assertFalse(dia.comparable)
+        assertEquals(2, dia.faltantes)
+        // no se muestra un % engañoso contra la ganadora
+        assertEquals(0.0, dia.difPorcentaje, 0.001)
+    }
+
+    @Test
+    fun `entre cadenas con la misma cobertura gana la mas barata`() {
+        val r = ComparadorLista.cotizar(
+            listOf(
+                prod("vea" to 500.0, "carrefour" to 400.0, "dia" to 300.0) to 1.0,
+                prod("vea" to 500.0, "carrefour" to 400.0) to 1.0
+            )
+        )!!
+        assertEquals(2, r.mejorCobertura)
+        assertEquals("carrefour", r.cadenas.first().cadenaId)   // 800 vs 1000
+        assertTrue(r.cadenas.first { it.cadenaId == "vea" }.comparable)
+        assertFalse(r.cadenas.first { it.cadenaId == "dia" }.comparable)
+        // el ahorro se calcula solo entre las comparables (1000 - 800)
+        assertEquals(200.0, r.ahorroVsPeor, 0.001)
+    }
+
+    @Test
     fun `productos sin precio o sin catalogo no suman pero cuentan en el total de items`() {
         val r = ComparadorLista.cotizar(
             listOf(

@@ -21,6 +21,15 @@
       "collectionGroup": "productos",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "en_tandil", "order": "ASCENDING" },
+        { "fieldPath": "descripcion", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "productos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "en_tandil", "order": "ASCENDING" },
         { "fieldPath": "categoria", "order": "ASCENDING" },
         { "fieldPath": "subcategoria", "order": "ASCENDING" },
         { "fieldPath": "descripcion", "order": "ASCENDING" }
@@ -30,6 +39,7 @@
       "collectionGroup": "productos",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "en_tandil", "order": "ASCENDING" },
         { "fieldPath": "categoria", "order": "ASCENDING" },
         { "fieldPath": "subcategoria", "order": "ASCENDING" },
         { "fieldPath": "precio_min", "order": "ASCENDING" }
@@ -39,6 +49,7 @@
       "collectionGroup": "productos",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "en_tandil", "order": "ASCENDING" },
         { "fieldPath": "categoria", "order": "ASCENDING" },
         { "fieldPath": "subcategoria", "order": "ASCENDING" },
         { "fieldPath": "marca", "order": "ASCENDING" },
@@ -49,6 +60,7 @@
       "collectionGroup": "productos",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "en_tandil", "order": "ASCENDING" },
         { "fieldPath": "categoria", "order": "ASCENDING" },
         { "fieldPath": "subcategoria", "order": "ASCENDING" },
         { "fieldPath": "marca", "order": "ASCENDING" },

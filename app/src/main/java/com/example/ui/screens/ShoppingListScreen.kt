@@ -560,7 +560,7 @@ private fun ComparadorListaCard(
                 }
             }
             Text(
-                "${mejor.itemsConPrecio}/${comparacion.itemsTotal} productos con precio",
+                "tiene ${mejor.itemsConPrecio} de tus ${comparacion.itemsTotal} productos",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
@@ -582,26 +582,41 @@ private fun ComparadorListaCard(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            "${cadena.itemsConPrecio}/${comparacion.itemsTotal}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
                             Formato.precio(cadena.total),
-                            style = MaterialTheme.typography.titleMedium
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (cadena.comparable) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            Formato.porcentaje(cadena.difPorcentaje),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
+                        // Mostrar un % contra la ganadora solo tiene sentido si
+                        // esta cadena cubre los mismos productos; si le faltan,
+                        // el total es más bajo por eso y compararlo engaña.
+                        if (cadena.comparable) {
+                            Text(
+                                Formato.porcentaje(cadena.difPorcentaje),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text(
+                                "le faltan ${cadena.faltantes}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
             Text(
-                "Los ítems sin precio no suman al total.",
+                if (comparacion.mejorCobertura < comparacion.itemsTotal) {
+                    "Ninguna cadena tiene toda la lista. Se compara sobre los " +
+                        "${comparacion.mejorCobertura} productos que sí consigue la ganadora."
+                } else {
+                    "Las cadenas a las que les faltan productos no compiten por el primer puesto."
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)

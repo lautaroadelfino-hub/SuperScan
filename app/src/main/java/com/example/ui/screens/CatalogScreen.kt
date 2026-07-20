@@ -13,6 +13,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,8 +31,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -62,8 +69,25 @@ fun CatalogScreen(
     val busquedaActiva = catalogViewModel.searchQuery.isNotBlank() &&
         destino !is CatalogViewModel.Destino.Detalle
 
-    BackHandler(enabled = catalogViewModel.navStack.size > 1 || busquedaActiva) {
-        if (busquedaActiva) catalogViewModel.limpiarBusqueda() else catalogViewModel.volver()
+    val teclado = LocalSoftwareKeyboardController.current
+    val foco = LocalFocusManager.current
+    var buscadorEnfocado by remember { mutableStateOf(false) }
+
+    fun cerrarTeclado() {
+        teclado?.hide()
+        foco.clearFocus()
+    }
+
+    // El "atrás" primero baja el teclado: si no, la pantalla navega por debajo
+    // y el teclado queda tapando los resultados sin forma de cerrarlo.
+    BackHandler(
+        enabled = catalogViewModel.navStack.size > 1 || busquedaActiva || buscadorEnfocado
+    ) {
+        when {
+            buscadorEnfocado -> cerrarTeclado()
+            busquedaActiva -> catalogViewModel.limpiarBusqueda()
+            else -> catalogViewModel.volver()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -78,14 +102,23 @@ fun CatalogScreen(
                     if (catalogViewModel.isSearching) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                     } else if (catalogViewModel.searchQuery.isNotBlank()) {
-                        IconButton(onClick = { catalogViewModel.limpiarBusqueda() }) {
+                        IconButton(onClick = {
+                            catalogViewModel.limpiarBusqueda()
+                            cerrarTeclado()
+                        }) {
                             Icon(Icons.Default.Clear, contentDescription = "Limpiar búsqueda")
                         }
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged { buscadorEnfocado = it.isFocused },
                 singleLine = true,
-                shape = RoundedCornerShape(24.dp)
+                shape = RoundedCornerShape(24.dp),
+                // La tecla del teclado dice "Buscar" y al tocarla lo baja, que
+                // es lo que uno espera al terminar de escribir.
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { cerrarTeclado() })
             )
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -95,7 +128,11 @@ fun CatalogScreen(
                     isSearching = catalogViewModel.isSearching,
                     hasCurrentList = hasCurrentList,
                     onAddToList = onAddToList,
-                    onOpen = { catalogViewModel.abrirDetalle(it) }
+                    onOpen = {
+                        cerrarTeclado()
+                        catalogViewModel.abrirDetalle(it)
+                    },
+                    onScroll = { cerrarTeclado() }
                 )
                 destino is CatalogViewModel.Destino.Categorias -> CategoriasGrid(
                     estado = catalogViewModel.estructura,
@@ -406,7 +443,8 @@ private fun SearchResultsList(
     isSearching: Boolean,
     hasCurrentList: Boolean,
     onAddToList: (ProductModel) -> Unit,
-    onOpen: (ProductModel) -> Unit
+    onOpen: (ProductModel) -> Unit,
+    onScroll: () -> Unit = {}
 ) {
     if (resultados.isEmpty()) {
         if (!isSearching) {
@@ -417,7 +455,15 @@ private fun SearchResultsList(
             )
         }
     } else {
+        val estadoGrilla = rememberLazyGridState()
+        // Al arrastrar los resultados se baja el teclado: es el gesto natural
+        // para "ya terminé de escribir, quiero ver".
+        LaunchedEffect(estadoGrilla) {
+            snapshotFlow { estadoGrilla.isScrollInProgress }
+                .collect { if (it) onScroll() }
+        }
         LazyVerticalGrid(
+            state = estadoGrilla,
             columns = GridCells.Fixed(2),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)

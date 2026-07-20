@@ -37,6 +37,9 @@ object CategoriasUi {
     private val POR_PALABRA_CLAVE: List<Pair<String, Estilo>> = listOf(
         "SIN ALCOHOL" to Estilo(Icons.Filled.LocalDrink, Color(0xFF1E88E5)),
         "ALCOHOL" to Estilo(Icons.Filled.Liquor, Color(0xFF5E35B1)),
+        "DESAYUNO" to Estilo(Icons.Filled.LocalCafe, Color(0xFF8D6E63)),
+        "MERIENDA" to Estilo(Icons.Filled.LocalCafe, Color(0xFF8D6E63)),
+        "CUIDADO PERSONAL" to Estilo(Icons.Filled.Face, Color(0xFFD81B60)),
         "FRESCO" to Estilo(Icons.Filled.LunchDining, Color(0xFF43A047)),
         "BEBIDA" to Estilo(Icons.Filled.LocalDrink, Color(0xFF1E88E5)),
         "LACTE" to Estilo(Icons.Filled.LocalCafe, Color(0xFF8D6E63)),

@@ -27,3 +27,7 @@ subida_firebase/off_dump.done
 subida_firebase/imagenes_off.json
 subida_firebase/*.log
 subida_firebase/catalogo_final_firestore.csv
+subida_firebase/categorias_gemini.json
+subida_firebase/tandil_nombres_cache.json
+subida_firebase/Datos*/
+subida_firebase/sim_nombres.txt

@@ -195,7 +195,14 @@ class FirebaseRepository {
 
         val resultados = LinkedHashMap<String, ProductModel>()
         for (coleccion in listOf("productos", "productos_usuarios")) {
-            val snapshot = db.collection(coleccion)
+            var busqueda: Query = db.collection(coleccion)
+            // El cat\u00e1logo global trae productos de todo el pa\u00eds y altas de Open
+            // Food Facts que no se consiguen en Tandil: se filtran para no
+            // ensuciar la b\u00fasqueda. productos_usuarios no lleva el flag.
+            if (coleccion == "productos") {
+                busqueda = busqueda.whereEqualTo("en_tandil", true)
+            }
+            val snapshot = busqueda
                 .orderBy("descripcion")
                 .startAt(q)
                 .endAt(q + "\uf8ff")
@@ -286,6 +293,8 @@ class FirebaseRepository {
     // la lista. Esos productos solo aparecen en el orden alfabético.
     fun getProductosPaginados(filtro: FiltroProductos): Flow<PagingData<ProductModel>> {
         var q: Query = db.collection("productos")
+            // Solo lo que se consigue en Tandil (ver en_tandil en el pipeline)
+            .whereEqualTo("en_tandil", true)
             .whereEqualTo("categoria", filtro.categoria)
             .whereEqualTo("subcategoria", filtro.subcategoria)
         filtro.marca?.let { q = q.whereEqualTo("marca", it) }

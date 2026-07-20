@@ -140,18 +140,34 @@ object ComparadorLista {
         val total: Double,
         val itemsConPrecio: Int,
         val esMejor: Boolean,
-        /** Diferencia % contra la cadena más barata (0.0 para la mejor) */
-        val difPorcentaje: Double
+        /** Diferencia % contra la mejor. Solo tiene sentido si [comparable]. */
+        val difPorcentaje: Double,
+        /** true si cubre tantos productos como la cadena que más cubre */
+        val comparable: Boolean,
+        /** Productos de la lista que esta cadena NO tiene */
+        val faltantes: Int
     )
 
     data class Resultado(
         val cadenas: List<TotalCadena>,
         val itemsTotal: Int,
-        /** Cuánto se ahorra yendo a la mejor cadena en vez de a la más cara */
+        /** Cobertura de la(s) cadena(s) que más productos tienen */
+        val mejorCobertura: Int,
+        /** Ahorro contra la más cara ENTRE LAS COMPARABLES */
         val ahorroVsPeor: Double
     )
 
-    /** @param items pares (producto del catálogo o null si no se encontró, cantidad) */
+    /**
+     * Cotiza la lista en cada cadena.
+     *
+     * Clave: comparar totales de cadenas con distinta cobertura es engañoso —
+     * la que tiene menos productos siempre parece más barata. Por eso solo
+     * compiten por el primer puesto las cadenas que cubren tantos productos
+     * como la que más cubre; el resto se muestra informativamente, con cuántos
+     * productos le faltan y sin un % que induzca a error.
+     *
+     * @param items pares (producto del catálogo o null si no se encontró, cantidad)
+     */
     fun cotizar(items: List<Pair<ProductModel?, Double>>): Resultado? {
         if (items.isEmpty()) return null
         val totales = mutableMapOf<String, Double>()
@@ -165,21 +181,42 @@ object ComparadorLista {
             }
         }
         if (totales.isEmpty()) return null
-        val orden = totales.entries.sortedWith(compareBy({ it.value }, { it.key }))
-        val mejor = orden.first().value
-        val cadenas = orden.map { (cadena, total) ->
+
+        val mejorCobertura = conteos.values.max()
+        val comparables = totales.keys.filter { conteos[it] == mejorCobertura }
+        val totalMejor = comparables.minOf { totales.getValue(it) }
+        val totalPeorComparable = comparables.maxOf { totales.getValue(it) }
+
+        // Primero las que cubren todo (de más barata a más cara), después el
+        // resto ordenado por cobertura y precio.
+        val orden = totales.keys.sortedWith(
+            compareByDescending<String> { conteos[it] == mejorCobertura }
+                .thenByDescending { conteos.getValue(it) }
+                .thenBy { totales.getValue(it) }
+                .thenBy { it }
+        )
+
+        val cadenas = orden.map { cadena ->
+            val total = totales.getValue(cadena)
+            val cubre = conteos.getValue(cadena)
+            val esComparable = cubre == mejorCobertura
             TotalCadena(
                 cadenaId = cadena,
                 total = total,
-                itemsConPrecio = conteos[cadena] ?: 0,
-                esMejor = total == mejor,
-                difPorcentaje = if (mejor > 0.0) (total - mejor) / mejor * 100.0 else 0.0
+                itemsConPrecio = cubre,
+                esMejor = esComparable && total == totalMejor,
+                difPorcentaje = if (esComparable && totalMejor > 0.0) {
+                    (total - totalMejor) / totalMejor * 100.0
+                } else 0.0,
+                comparable = esComparable,
+                faltantes = mejorCobertura - cubre
             )
         }
         return Resultado(
             cadenas = cadenas,
             itemsTotal = items.size,
-            ahorroVsPeor = orden.last().value - mejor
+            mejorCobertura = mejorCobertura,
+            ahorroVsPeor = totalPeorComparable - totalMejor
         )
     }
 }
