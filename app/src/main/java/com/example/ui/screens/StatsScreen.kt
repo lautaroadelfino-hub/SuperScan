@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.data.Formato
 import com.example.data.ReceiptEntity
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -125,7 +126,7 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
         filteredReceipts.groupBy { it.storeName }.mapValues { it.value.sumOf { r -> r.totalAmount } }
     }
     
-    val colors = listOf(Color(0xFF4CAF50), Color(0xFF2196F3), Color(0xFFFFC107), Color(0xFFE91E63), Color(0xFF9C27B0), Color(0xFFFF5722))
+    val colors = CategoriasUi.PALETA_GRAFICOS
 
     var expandedProduct by remember { mutableStateOf<String?>(null) }
     
@@ -147,14 +148,13 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
             Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text("Gasto", style = MaterialTheme.typography.labelSmall)
-                    Text("$${String.format(Locale.US, "%.0f", filteredSpent)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(Formato.precio(filteredSpent), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
             }
             Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text("Vs Mes Ant.", style = MaterialTheme.typography.labelSmall)
-                    val sign = if (variation > 0) "+" else ""
-                    Text("$sign${String.format(Locale.US, "%.1f", variation)}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (variation > 0) Color(0xFFD32F2F) else Color(0xFF388E3C))
+                    Text(Formato.porcentaje(variation), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (variation > 0) Color(0xFFD32F2F) else Color(0xFF388E3C))
                 }
             }
             Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
@@ -246,7 +246,7 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
                                     Box(modifier = Modifier.size(12.dp).background(colors[index % colors.size], RoundedCornerShape(2.dp)))
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("${pair.first}: $${String.format(Locale.US, "%.2f", pair.second)}", style = MaterialTheme.typography.bodySmall)
+                                    Text("${pair.first}: ${Formato.precio(pair.second)}", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -273,7 +273,7 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).animateItem()) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(supermarket, style = MaterialTheme.typography.bodyMedium)
-                        Text("$${String.format(Locale.US, "%.2f", total)}", fontWeight = FontWeight.Bold)
+                        Text(Formato.precio(total), fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     LinearProgressIndicator(
@@ -321,7 +321,7 @@ fun ProductPriceChart(observations: List<PriceObservation>) {
     if (observations.isEmpty()) return
     val observationsByStore = observations.groupBy { it.storeName }
     val uniqueStores = observationsByStore.keys.toList()
-    val storeColors = listOf(Color(0xFFE53935), Color(0xFF1E88E5), Color(0xFF43A047), Color(0xFFFDD835), Color(0xFF8E24AA), Color(0xFF00ACC1))
+    val storeColors = CategoriasUi.PALETA_GRAFICOS
     
     val minPrice = observations.minOfOrNull { it.price }?.toFloat() ?: 0f
     val maxPrice = observations.maxOfOrNull { it.price }?.toFloat() ?: 0f
@@ -374,8 +374,8 @@ fun ProductPriceChart(observations: List<PriceObservation>) {
         }
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("$${String.format(Locale.US, "%.2f", minPrice)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("$${String.format(Locale.US, "%.2f", maxPrice)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(Formato.precio(minPrice.toDouble()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(Formato.precio(maxPrice.toDouble()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         
         Spacer(modifier = Modifier.height(8.dp))
