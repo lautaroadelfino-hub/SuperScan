@@ -31,3 +31,13 @@ subida_firebase/categorias_gemini.json
 subida_firebase/tandil_nombres_cache.json
 subida_firebase/Datos*/
 subida_firebase/sim_nombres.txt
+
+# Scripts sueltos de prueba en la raiz (scratch, no son la suite de tests)
+/test_*.py
+/test_*.kt
+
+# Skills de terceros (set de Compose/Kotlin de Chris Banes): se instalan aparte,
+# no se versionan aca. Las skills propias del proyecto si estan commiteadas.
+.claude/skills/compose-*/
+.claude/skills/kotlin-*/
+.claude/skills/using-chrisbanes-skills/
