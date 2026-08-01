@@ -69,6 +69,9 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableStateOf(0) }
     var productToAddToList by remember { mutableStateOf<com.example.data.ProductModel?>(null) }
+    // Pedido de entrar al Modo Súper desde el botón central. Lo atiende
+    // ShoppingListsScreen, que es la que sabe qué lista está abierta.
+    var pedidoModoSuper by remember { mutableStateOf(false) }
 
     // Los errores de acción viven acá: un Snackbar que no tapa la app ni obliga
     // a tocar "OK". El AlertDialog quedó solo para lo destructivo (fix 1).
@@ -230,10 +233,10 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     }
                                 )
                             } else {
-                                // La compra se carga escaneando en la góndola, no
-                                // fotografiando el ticket después: el botón lleva a
-                                // las listas, que es de donde arranca el Modo Súper.
-                                selectedTab = 0
+                                // Listas: derecho a comprar. Es la acción central
+                                // de la app y antes estaba a tres toques (abrir la
+                                // solapa, abrir la lista, tocar Modo Súper).
+                                pedidoModoSuper = true
                             }
                         }
                     )
@@ -268,7 +271,9 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     onItemToggled = { itemId, isChecked -> viewModel.toggleShoppingItem(itemId, isChecked) },
                                     onItemDeleted = { itemId -> viewModel.removeShoppingItem(itemId) },
                                     onAddMember = { email -> viewModel.addMemberToList(email) },
-                                    onCreateList = { name -> viewModel.createShoppingList(name) }
+                                    onCreateList = { name -> viewModel.createShoppingList(name) },
+                                    pedidoModoSuper = pedidoModoSuper,
+                                    onPedidoModoSuperAtendido = { pedidoModoSuper = false }
                                 )
                             }
                             1 -> {
@@ -369,7 +374,10 @@ private fun BarraGondola(
                 label = { Text("Perfil") }
             )
         }
-        if (selectedTab != 3) {
+        // Solo en Listas (ir a comprar) y en Catálogo (escanear un producto). En
+        // Mis compras y en Perfil no hay nada que escanear ni que empezar, y un
+        // botón que aparece sin tener qué hacer es peor que no tenerlo.
+        if (selectedTab == 0 || selectedTab == 1) {
             // El micro-label va ADENTRO del círculo, debajo del ícono: el botón
             // dice lo que hace sin depender de una palabra suelta flotando sobre
             // la barra.
@@ -384,11 +392,11 @@ private fun BarraGondola(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         if (esCatalogo) Icons.Default.QrCodeScanner else Icons.Default.ShoppingCart,
-                        contentDescription = if (esCatalogo) "Escanear producto" else "Ir a comprar",
+                        contentDescription = if (esCatalogo) "Escanear producto" else "Entrar al Modo Súper",
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        if (esCatalogo) "ESCANEAR" else "COMPRAR",
+                        if (esCatalogo) "ESCANEAR" else "SÚPER",
                         fontSize = 8.sp,
                         lineHeight = 9.sp,
                         fontWeight = FontWeight.Black,

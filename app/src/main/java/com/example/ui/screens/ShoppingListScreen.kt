@@ -73,7 +73,14 @@ fun ShoppingListsScreen(
     onItemToggled: (String, Boolean) -> Unit,
     onItemDeleted: (String) -> Unit,
     onAddMember: (String) -> Unit,
-    onCreateList: (String) -> Unit
+    onCreateList: (String) -> Unit,
+    /**
+     * El botón central de la barra pide entrar al Modo Súper. Llega como pedido
+     * y no como estado porque el botón vive en MainScreen y la lista abierta
+     * vive acá: la pantalla es la única que sabe a qué lista entrar.
+     */
+    pedidoModoSuper: Boolean = false,
+    onPedidoModoSuperAtendido: () -> Unit = {}
 ) {
     var selectedListId by rememberSaveable { mutableStateOf<String?>(null) }
     val comparacion by viewModel.comparacionLista.collectAsState()
@@ -88,6 +95,21 @@ fun ShoppingListsScreen(
     // cerrar la app. (El Modo Súper maneja el suyo.)
     BackHandler(enabled = selectedListId != null && !superMode) {
         selectedListId = null
+    }
+
+    // Ir a comprar en un toque. Si hay una lista abierta se usa esa; si no, la
+    // activa. Sin ninguna lista no hay nada que escanear contra qué, así que se
+    // ofrece crear una en vez de abrir la cámara para nada.
+    LaunchedEffect(pedidoModoSuper) {
+        if (!pedidoModoSuper) return@LaunchedEffect
+        val destino = selectedListId ?: activeListId ?: lists.firstOrNull()?.id
+        if (destino == null) {
+            showCreateListDialog = true
+        } else {
+            selectedListId = destino
+            superMode = true
+        }
+        onPedidoModoSuperAtendido()
     }
 
     if (superMode && selectedListId != null) {
