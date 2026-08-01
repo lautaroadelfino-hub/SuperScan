@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Política de privacidad · Góndola</title>
+<style>
+  :root {
+    --verde: #1E7A4E;
+    --tinta: #14201A;
+    --papel: #F4F7F2;
+    --borde: #DCE5DD;
+    --tenue: #4C6357;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 4rem;
+    background: var(--papel);
+    color: var(--tinta);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.65;
+    font-size: 17px;
+  }
+  main { max-width: 44rem; margin: 0 auto; }
+  header {
+    border-bottom: 3px solid var(--verde);
+    padding-bottom: 1.25rem;
+    margin-bottom: 2rem;
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  h2 {
+    font-size: 1.2rem;
+    margin: 2.5rem 0 .75rem;
+    color: var(--verde);
+    letter-spacing: -.01em;
+  }
+  .sub { color: var(--tenue); margin: 0; font-size: .95rem; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: .95rem;
+    background: #fff;
+  }
+  th, td { text-align: left; padding: .7rem .8rem; border: 1px solid var(--borde); vertical-align: top; }
+  th { background: #EAF3ED; font-weight: 600; }
+  .caja {
+    background: #fff;
+    border: 1px solid var(--borde);
+    border-left: 4px solid var(--verde);
+    padding: 1rem 1.15rem;
+    margin: 1.5rem 0;
+    border-radius: 4px;
+  }
+  ul { padding-left: 1.25rem; }
+  li { margin: .4rem 0; }
+  a { color: var(--verde); }
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--borde);
+    color: var(--tenue);
+    font-size: .9rem;
+  }
+  @media (max-width: 520px) {
+    body { font-size: 16px; padding: 1.5rem 1rem 3rem; }
+    table, th, td { font-size: .88rem; }
+    th, td { padding: .55rem .6rem; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <h1>Política de privacidad de Góndola</h1>
+  <p class="sub">Última actualización: 1 de agosto de 2026</p>
+</header>
+
+<p>
+  Góndola es una aplicación para comparar precios de supermercados en Tandil,
+  escanear tickets de compra y armar listas compartidas. Esta política explica
+  qué datos recoge la app, para qué los usa y cómo podés borrarlos.
+</p>
+
+<p>
+  La app es desarrollada por <strong>Fuerte Code</strong>. Para cualquier consulta
+  sobre tus datos podés escribir a
+  <a href="mailto:lautaroadelfino@gmail.com">lautaroadelfino@gmail.com</a>.
+</p>
+
+<h2>Qué datos recogemos</h2>
+
+<table>
+  <thead>
+    <tr><th>Dato</th><th>Para qué</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Correo electrónico y contraseña</strong></td>
+      <td>Crear tu cuenta y que puedas entrar. La contraseña la administra Firebase Authentication; nosotros no la vemos ni la guardamos.</td>
+    </tr>
+    <tr>
+      <td><strong>Nombre y ciudad</strong> (opcionales)</td>
+      <td>Personalizar la app y mostrar los precios de tu zona.</td>
+    </tr>
+    <tr>
+      <td><strong>Tickets de compra</strong>: comercio, fecha, total y los productos con su precio y cantidad</td>
+      <td>Mostrarte tu historial y tus estadísticas de gasto. Quedan asociados a tu cuenta y solo vos los ves.</td>
+    </tr>
+    <tr>
+      <td><strong>Precios que informás</strong>: código de barras, comercio, precio y fecha</td>
+      <td>Alimentar el comparador de precios que usan todos los usuarios de la app.</td>
+    </tr>
+    <tr>
+      <td><strong>Listas de compras</strong> que creás o compartís</td>
+      <td>Sincronizarlas entre tu teléfono y las personas con las que las compartas.</td>
+    </tr>
+    <tr>
+      <td><strong>Fotos de tickets</strong> (cámara)</td>
+      <td>Extraer automáticamente los productos y precios del ticket. Ver el detalle abajo.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="caja">
+  <strong>Qué NO recogemos:</strong> Góndola no pide tu ubicación, no accede a tus
+  contactos, no lee tu galería de fotos y no tiene publicidad ni rastreadores
+  publicitarios. Tampoco vendemos ni cedemos tus datos a terceros con fines
+  comerciales.
+</div>
+
+<h2>Las fotos de los tickets</h2>
+
+<p>
+  Cuando escaneás un ticket, la foto se envía a <strong>Google Gemini</strong>
+  (a través de Firebase AI Logic) para que reconozca el texto y arme la lista de
+  productos. Una vez extraídos los datos:
+</p>
+<ul>
+  <li>La imagen <strong>no se guarda</strong> en nuestros servidores ni queda almacenada en la app.</li>
+  <li>Solo se conserva el resultado en texto: comercio, fecha, total y los productos con sus precios.</li>
+  <li>Google procesa la imagen según sus propias condiciones. Podés leerlas en la <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">política de privacidad de Firebase</a>.</li>
+</ul>
+<p>
+  El permiso de cámara se usa únicamente para escanear tickets y códigos de barras
+  de productos. La app nunca activa la cámara en segundo plano.
+</p>
+
+<h2>Los precios colaborativos</h2>
+
+<p>
+  Góndola funciona porque los usuarios informan precios que ven en la góndola o en
+  sus tickets. Cuando aportás un precio, ese dato —producto, comercio, precio y
+  fecha— pasa a estar disponible para el resto de los usuarios de la app.
+</p>
+<p>
+  <strong>Tu identidad no se muestra junto al precio.</strong> Los demás usuarios ven
+  el precio y el supermercado, nunca tu nombre ni tu correo. Internamente
+  guardamos qué cuenta aportó cada dato, para poder moderar abusos y para poder
+  borrar todos tus aportes si eliminás tu cuenta.
+</p>
+
+<h2>Con quién se comparten los datos</h2>
+
+<p>Usamos servicios de Google como proveedores de infraestructura:</p>
+<ul>
+  <li><strong>Firebase Authentication</strong> — administra las cuentas y las contraseñas.</li>
+  <li><strong>Cloud Firestore</strong> — guarda tickets, listas, precios y datos de perfil.</li>
+  <li><strong>Firebase AI Logic / Gemini</strong> — lee las fotos de los tickets.</li>
+  <li><strong>Firebase App Check</strong> — verifica que las llamadas vengan de la app real y no de un tercero.</li>
+</ul>
+<p>
+  Estos datos se alojan en la infraestructura de Google Cloud y pueden procesarse
+  en servidores fuera de Argentina. No compartimos tus datos con ningún otro
+  tercero, salvo que nos lo exija una autoridad competente.
+</p>
+
+<h2>Cuánto tiempo conservamos los datos</h2>
+
+<p>
+  Tus tickets, listas y datos de perfil se conservan mientras tu cuenta esté
+  activa. Si borrás tu cuenta, se eliminan.
+</p>
+
+<h2>Cómo borrar tus datos</h2>
+
+<p>
+  Podés eliminar tu cuenta desde la propia app, en
+  <strong>Perfil → Eliminar cuenta</strong>. Al hacerlo se borran de forma
+  permanente:
+</p>
+<ul>
+  <li>Todos tus tickets y su historial.</li>
+  <li>Todos los precios que hayas informado.</li>
+  <li>Tu perfil (nombre y ciudad).</li>
+  <li>Tu cuenta de acceso y tu correo.</li>
+</ul>
+<p>
+  La eliminación es inmediata y no se puede deshacer. Si preferís pedirlo por
+  escrito, escribinos a
+  <a href="mailto:lautaroadelfino@gmail.com">lautaroadelfino@gmail.com</a> y lo
+  resolvemos dentro de los 30 días.
+</p>
+
+<h2>Seguridad</h2>
+
+<p>
+  Las comunicaciones entre la app y los servidores viajan cifradas (HTTPS). El
+  acceso a tus tickets y listas está restringido por reglas de seguridad de
+  Firestore: solo tu cuenta puede leer y escribir tus propios datos. Ningún
+  usuario puede modificar el catálogo de precios oficial desde la app.
+</p>
+
+<h2>Menores de edad</h2>
+
+<p>
+  Góndola está pensada para el público general y no está dirigida a menores de 13
+  años. No recogemos deliberadamente datos de menores de esa edad. Si detectamos
+  que se creó una cuenta de un menor de 13 años, la eliminamos.
+</p>
+
+<h2>Cambios en esta política</h2>
+
+<p>
+  Si cambiamos esta política vamos a actualizar la fecha del encabezado y, si el
+  cambio es importante, avisarte dentro de la app.
+</p>
+
+<footer>
+  Góndola · Fuerte Code · Tandil, Buenos Aires, Argentina<br>
+  Contacto: <a href="mailto:lautaroadelfino@gmail.com">lautaroadelfino@gmail.com</a>
+</footer>
+
+</main>
+</body>
+</html>

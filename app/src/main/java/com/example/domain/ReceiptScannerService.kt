@@ -1,10 +1,11 @@
 package com.example.domain
 
 import android.graphics.Bitmap
-import com.example.BuildConfig
-import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.content
-import com.google.ai.client.generativeai.type.generationConfig
+import com.google.firebase.Firebase
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.content
+import com.google.firebase.ai.type.generationConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -42,14 +43,12 @@ class ReceiptScannerService {
 
     private val jsonParser = Json { ignoreUnknownKeys = true; isLenient = true }
     
+    // Firebase AI Logic: la llamada a Gemini se autentica con el proyecto de
+    // Firebase + App Check, no con una API key. Por eso no hay ninguna key en el
+    // APK que alguien pueda extraer del bundle publicado en Play.
     private val generativeModel by lazy {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            throw IllegalArgumentException("Falta la API Key de Gemini. Configúrala en el archivo .env del proyecto (ver .env.example).")
-        }
-        GenerativeModel(
+        Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
             modelName = "gemini-3.5-flash",
-            apiKey = apiKey,
             systemInstruction = content { text("Eres un asistente experto en extracción de datos. Tu única tarea es extraer la información solicitada de los documentos proporcionados y devolver SIEMPRE un único objeto JSON válido. NO debes incluir ningún texto introductorio, ni bloques de código markdown, ni explicaciones adicionales, sólo el JSON crudo.") },
             generationConfig = generationConfig {
                 responseMimeType = "application/json"
@@ -105,7 +104,7 @@ class ReceiptScannerService {
         try {
             val response = generativeModel.generateContent(
                 content {
-                    blob("application/pdf", pdfBytes)
+                    inlineData(pdfBytes, "application/pdf")
                     text(prompt)
                 }
             )

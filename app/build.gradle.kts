@@ -6,7 +6,6 @@ plugins {
   id("org.jetbrains.kotlin.plugin.serialization") version "2.2.10"
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
-  alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
 }
 
@@ -15,7 +14,7 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.gastoscan.xqztl"
+    applicationId = "ar.com.gondola.app"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
@@ -67,12 +66,10 @@ android {
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
-secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
-}
+// El plugin `secrets` quedó eliminado a propósito: inyectaba GEMINI_API_KEY en
+// BuildConfig, o sea que la key viajaba dentro del APK/AAB y cualquiera que lo
+// bajara de Play podía extraerla. Ahora las llamadas a Gemini pasan por Firebase
+// AI Logic, que autentica por proyecto de Firebase + App Check en vez de por key.
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
 
@@ -104,18 +101,21 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
-  // implementation(libs.firebase.ai)
+  implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
   implementation(libs.firebase.auth)
   implementation(libs.androidx.credentials)
   implementation(libs.androidx.credentials.play.services)
   implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
+  // App Check: Play Integrity en release (verifica que la llamada venga de la
+  // app instalada desde Play) y el proveedor de debug en las builds locales,
+  // que si no el escaneo dejaría de andar en el celular de desarrollo.
+  implementation(libs.firebase.appcheck.playintegrity)
+  debugImplementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   // implementation(libs.play.services.location)
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-  implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
   testImplementation(libs.androidx.junit)
