@@ -59,14 +59,52 @@ private val DarkColorScheme =
     outline = gondola_dark_outline,
   )
 
+// Variante cromática de la marca. "Almacén" es una exploración azul del mismo
+// sistema (mismo amarillo, mismo error): vive detrás de este flag para poder
+// probarla sin tocar una sola pantalla.
+enum class VarianteGondola { GONDOLA, ALMACEN }
+
+private val AlmacenColorScheme =
+  lightColorScheme(
+    primary = almacen_primary,
+    onPrimary = gondola_light_onPrimary,
+    primaryContainer = almacen_primaryContainer,
+    onPrimaryContainer = almacen_onPrimaryContainer,
+    secondary = almacen_secondary,
+    onSecondary = gondola_light_onSecondary,
+    secondaryContainer = almacen_secondaryContainer,
+    onSecondaryContainer = almacen_onSecondaryContainer,
+    // El amarillo de la etiqueta no se toca: es la marca
+    tertiary = gondola_light_tertiary,
+    onTertiary = gondola_light_onTertiary,
+    tertiaryContainer = gondola_light_tertiaryContainer,
+    onTertiaryContainer = gondola_light_onTertiaryContainer,
+    error = gondola_light_error,
+    onError = gondola_light_onError,
+    errorContainer = gondola_light_errorContainer,
+    onErrorContainer = gondola_light_onErrorContainer,
+    background = almacen_background,
+    onBackground = almacen_ink,
+    surface = gondola_light_surface,
+    onSurface = almacen_ink,
+    surfaceVariant = almacen_surfaceVariant,
+    onSurfaceVariant = almacen_onSurfaceVariant,
+    outline = almacen_outline,
+  )
+
 @Composable
 fun MyApplicationTheme(
   // El papel claro con tarjetas blancas ES la identidad Góndola: se fuerza
   // claro. El esquema oscuro queda definido para ofrecerlo a futuro como
   // preferencia del usuario, no como default del sistema.
   darkTheme: Boolean = false,
+  variante: VarianteGondola = VarianteGondola.GONDOLA,
   content: @Composable () -> Unit,
 ) {
-  val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+  val colorScheme = when {
+    darkTheme -> DarkColorScheme
+    variante == VarianteGondola.ALMACEN -> AlmacenColorScheme
+    else -> LightColorScheme
+  }
   MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }

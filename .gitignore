@@ -17,6 +17,13 @@ local.properties
 .env
 debug.keystore
 
+# Clave de subida a Google Play: NUNCA se commitea.
+*.jks
+*.keystore
+
+# Cache de deploy de Firebase Hosting
+.firebase/
+
 # Logs de crash del JVM
 hs_err_pid*.log
 scripts/sesion_anonima.json
@@ -41,3 +48,7 @@ subida_firebase/sim_nombres.txt
 .claude/skills/compose-*/
 .claude/skills/kotlin-*/
 .claude/skills/using-chrisbanes-skills/
+
+# Caches de los scripts del pipeline (se regeneran solos)
+subida_firebase/categorias_altas.json
+__pycache__/

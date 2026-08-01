@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Marca Góndola (ver marca-visual-app/MARCA-E-ICONO.md) -->
+    <color name="gondola_verde">#1E7A4E</color>
+    <color name="gondola_amarillo">#FFD23F</color>
+    <color name="gondola_tinta">#14201A</color>
+    <color name="gondola_papel">#F4F7F2</color>
+
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>

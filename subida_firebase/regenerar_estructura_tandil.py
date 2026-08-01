@@ -1,60 +1,76 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-regenerar_estructura_tandil.py - Reconstruye catalogo_meta/estructura contando
-SOLO los productos visibles en la app (en_tandil = true).
+regenerar_estructura_tandil.py - Reconstruye catalogo_meta/estructura (el arbol
+categorias -> subcategorias -> marcas que navega la app) contando SOLO los
+productos visibles: en_tandil = true.
 
-Si el árbol se genera con todo el catálogo, la grilla muestra categorías,
-subcategorías y marcas que al entrar aparecen vacías, porque sus productos
-están ocultos. Este script lo alinea con lo que la app realmente muestra.
+Si el arbol se genera con todo el catalogo, la grilla muestra categorias y
+marcas que al entrar aparecen vacias, porque sus productos estan ocultos.
 
-Correr DESPUÉS de corregir_nombres.py --aplicar.
+Lee de FIRESTORE, no del CSV. Antes lo armaba desde catalogo_final_firestore.csv
++ categorias_gemini.json, pero desde que hay scripts que escriben directo en la
+base (actualizar_precios.py, altas_nuevas.py) ese CSV es una foto vieja:
+regenerar desde ahi borraria del arbol los productos dados de alta despues.
+
+Correr DESPUES de cualquier script que agregue productos o cambie categorias.
+
+Uso:
+    python regenerar_estructura_tandil.py            # simulacion
+    python regenerar_estructura_tandil.py --aplicar
 """
-import json
+import sys
 from pathlib import Path
+
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 CARPETA = Path(__file__).resolve().parent
 CREDENCIALES = CARPETA / "credenciales.json"
-CACHE = CARPETA / "tandil_nombres_cache.json"
-CATALOGO = CARPETA / "catalogo_final_firestore.csv"
-
-
-def norm(raw):
-    d = "".join(c for c in (raw or "") if c.isdigit())
-    return d.zfill(13) if 8 <= len(d) <= 13 else None
-
-
-CATEGORIAS = CARPETA / "categorias_gemini.json"
+SIN_CLASIFICAR = "Sin clasificar"
 
 
 def main():
-    import csv
-    if not CACHE.exists():
-        raise SystemExit("Falta tandil_nombres_cache.json: correr antes corregir_nombres.py")
-    en_tandil = set(json.loads(CACHE.read_text(encoding="utf-8")))
-    # Las categorías buenas son las de la reclasificación con Gemini; el CSV
-    # todavía tiene el árbol viejo (hecho por palabras clave).
-    nuevas = json.loads(CATEGORIAS.read_text(encoding="utf-8")) if CATEGORIAS.exists() else {}
+    aplicar = "--aplicar" in sys.argv
 
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
+    db = firestore.client()
+
+    print("Leyendo los productos visibles (en_tandil = true)...")
     arbol = {}
-    incluidos = 0
-    with open(CATALOGO, encoding="utf-8-sig") as f:
-        for fila in csv.DictReader(f):
-            ean = norm(fila.get("ean"))
-            if ean is None or ean not in en_tandil:
-                continue
-            if ean in nuevas:
-                cat, sub = nuevas[ean].split(">", 1)
-            elif nuevas:
-                continue  # sin clasificar por Gemini: no se muestra en el árbol
-            else:
-                cat = (fila.get("categoria") or "Sin clasificar").strip()
-                sub = (fila.get("subcategoria") or "Sin clasificar").strip()
-            incluidos += 1
-            marca = (fila.get("marca") or "").strip().upper()
-            marcas = arbol.setdefault(cat, {}).setdefault(sub, set())
-            if marca:
-                marcas.add(marca)
+    incluidos = descartados = 0
+    # De paso se cuenta la cobertura: la app la muestra tal cual es, y el
+    # numero honesto es "productos CON PRECIO", no el total de la base (que
+    # incluye lo que no se consigue en Tandil).
+    visibles = con_precio = precios_totales = 0
+    por_cadena = {}
+    consulta = (db.collection("productos")
+                  .where("en_tandil", "==", True)
+                  .select(["categoria", "subcategoria", "marca", "precios"]))
+    for doc in consulta.stream():
+        d = doc.to_dict() or {}
+        visibles += 1
+        precios = {c: v for c, v in (d.get("precios") or {}).items() if v and v > 0}
+        if precios:
+            con_precio += 1
+            precios_totales += len(precios)
+            for c in precios:
+                por_cadena[c] = por_cadena.get(c, 0) + 1
+        cat = (d.get("categoria") or "").strip()
+        sub = (d.get("subcategoria") or "").strip()
+        # Una categoria vacia o "Sin clasificar" en la grilla es una puerta a
+        # una bolsa de gatos: no entra al arbol.
+        if not cat or not sub or cat == SIN_CLASIFICAR or sub == SIN_CLASIFICAR:
+            descartados += 1
+            continue
+        incluidos += 1
+        marca = (d.get("marca") or "").strip().upper()
+        marcas = arbol.setdefault(cat, {}).setdefault(sub, set())
+        if marca:
+            marcas.add(marca)
+        if (incluidos + descartados) % 20000 == 0:
+            print(f"  {incluidos + descartados} leidos...", flush=True)
 
     estructura = {
         "categorias": [
@@ -69,17 +85,36 @@ def main():
         ]
     }
 
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-    firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
-    db = firestore.client()
-    db.collection("catalogo_meta").document("estructura").set(estructura)
-
     n_sub = sum(len(c["subcategorias"]) for c in estructura["categorias"])
-    print(f"estructura regenerada con {incluidos} productos de Tandil: "
-          f"{len(estructura['categorias'])} categorías, {n_sub} subcategorías")
+    n_marcas = sum(len(s["marcas"]) for c in estructura["categorias"] for s in c["subcategorias"])
+    print(f"\nProductos visibles incluidos: {incluidos}")
+    print(f"Descartados por no tener categoria: {descartados}")
+    print(f"Arbol: {len(estructura['categorias'])} categorias, "
+          f"{n_sub} subcategorias, {n_marcas} marcas")
     for c in estructura["categorias"]:
-        print(f"   {c['nombre']}: {len(c['subcategorias'])} subcategorías")
+        print(f"   {c['nombre']}: {len(c['subcategorias'])} subcategorias")
+
+    print(f"\nCobertura (lo que la app muestra como su valor):")
+    print(f"   productos visibles   : {visibles}")
+    print(f"   con al menos 1 precio: {con_precio}")
+    print(f"   precios cargados     : {precios_totales}")
+    for c, n in sorted(por_cadena.items(), key=lambda kv: -kv[1]):
+        print(f"      {c:12} {n}")
+
+    if not aplicar:
+        print("\n(simulacion: no se escribio nada. Correr con --aplicar)")
+        return
+
+    db.collection("catalogo_meta").document("estructura").set(estructura)
+    # merge: la fecha de los datos la escribe actualizar_precios.py en el mismo
+    # documento. Cada script pone lo que sabe.
+    db.collection("catalogo_meta").document("precios").set({
+        "productos_visibles": visibles,
+        "productos_con_precio": con_precio,
+        "precios_totales": precios_totales,
+        "por_cadena": por_cadena,
+    }, merge=True)
+    print("\ncatalogo_meta/estructura y catalogo_meta/precios actualizados.")
 
 
 if __name__ == "__main__":

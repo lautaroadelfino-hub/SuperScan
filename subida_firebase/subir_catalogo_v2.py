@@ -7,6 +7,7 @@ Estructura de cada documento (ID = EAN de 13 digitos):
 
     productos/{ean} = {
         ean, descripcion, marca, categoria, subcategoria,
+        tokens: ["FIDEOS", "SIN", "GLUTEN", "500G"],       # busqueda por palabra
         precios: { vea: 1942.0, carrefour: 1909.0, ... },   # solo las cadenas con precio
         precio_min: 1909.0, cadena_min: "carrefour",
         precio_publico: None, precio_publico_n: 0,          # lo informado por usuarios
@@ -25,6 +26,8 @@ import sys
 
 import firebase_admin
 from firebase_admin import credentials, firestore
+
+from tokens_busqueda import tokenizar
 
 try:
     from google.api_core.exceptions import ResourceExhausted
@@ -81,10 +84,16 @@ def armar_doc(fila):
         if p is not None:
             precios[cadena] = p
 
+    descripcion = (fila.get("descripcion") or "").strip()
+    marca = (fila.get("marca") or "").strip()
+
     doc = {
         "ean": ean,
-        "descripcion": (fila.get("descripcion") or "").strip(),
-        "marca": (fila.get("marca") or "").strip(),
+        "descripcion": descripcion,
+        "marca": marca,
+        # Palabras sueltas para que la app encuentre "SIN GLUTEN" aunque este
+        # en el medio del nombre (Firestore solo busca prefijos).
+        "tokens": tokenizar(descripcion, marca),
         "categoria": (fila.get("categoria") or "Sin clasificar").strip(),
         "subcategoria": (fila.get("subcategoria") or "Sin clasificar").strip(),
         "precios": precios,

@@ -7,12 +7,25 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:514170932765:android:33d3a4217e4680325d00f4",
+        "mobilesdk_app_id": "1:514170932765:android:512de906750401165d00f4",
         "android_client_info": {
-          "package_name": "com.aistudio.gastoscan.xqztl"
+          "package_name": "ar.com.gondola.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "514170932765-g04hq6u3bqu3uc2pmum678vfhb1cl9ki.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "ar.com.gondola.app",
+            "certificate_hash": "b1878cd9de98ff4b7bb546a5112c3923f912b1b6"
+          }
+        },
+        {
+          "client_id": "514170932765-holl19c02cm5mj5dthieog14ubmdh114.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyD2oah4hzCHJZBv5AZiWKPkU69htG77Bbw"
@@ -20,7 +33,41 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "514170932765-holl19c02cm5mj5dthieog14ubmdh114.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:514170932765:android:33d3a4217e4680325d00f4",
+        "android_client_info": {
+          "package_name": "com.aistudio.gastoscan.xqztl"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "514170932765-holl19c02cm5mj5dthieog14ubmdh114.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD2oah4hzCHJZBv5AZiWKPkU69htG77Bbw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "514170932765-holl19c02cm5mj5dthieog14ubmdh114.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

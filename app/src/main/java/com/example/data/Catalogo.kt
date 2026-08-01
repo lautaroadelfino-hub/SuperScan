@@ -29,6 +29,9 @@ data class ProductModel(
      *  null en imágenes históricas se trata como "off". Define la atribución del detalle. */
     val imagen_fuente: String? = null,
     val revisar: Boolean = false,
+    /** Palabras del nombre y la marca, para buscar "GLUTEN" aunque esté en el medio.
+     *  Lo genera el pipeline (ver Busqueda.tokenizar); vacío en documentos viejos. */
+    val tokens: List<String> = emptyList(),
     val actualizado: Timestamp? = null,
     // Solo de la app (no viene en los documentos de `productos`): marca el
     // origen del dato, p. ej. "usuario" para altas en productos_usuarios.
@@ -57,6 +60,18 @@ sealed interface DisplayPrice {
     /** Sin precio todavía: invitar a informarlo */
     data object None : DisplayPrice
     data class Failure(val mensaje: String) : DisplayPrice
+
+    /**
+     * El número, para cuando hay que hacer cuentas y no mostrar texto: sumar el
+     * changuito, guardar lo que se pagó. Null cuando no hay precio conocido, que
+     * es distinto de cero: cero sería "es gratis".
+     */
+    fun valorOrNull(): Double? = when (this) {
+        is UserObservation -> precio
+        is PublicPrice -> precio
+        is MinPrice -> precio
+        None, is Failure -> null
+    }
 }
 
 // Diccionario ÚNICO de nombres legibles por cadena. Las cadenas van a crecer:
@@ -70,6 +85,9 @@ object Cadenas {
         "dia" to "Día"
     )
 
+    /** Solo como último recurso cuando no se pudo leer ninguna cadena del catálogo */
+    fun conocidas(): Set<String> = NOMBRES.keys
+
     fun nombre(id: String): String =
         NOMBRES[id] ?: id.split('_')
             .filter { it.isNotBlank() }
@@ -77,6 +95,48 @@ object Cadenas {
                 palabra.lowercase(Locale.ROOT)
                     .replaceFirstChar { it.titlecase(Locale.ROOT) }
             }
+}
+
+// Búsqueda de productos. Firestore solo sabe buscar por prefijo, y media
+// góndola tiene lo importante en el medio del nombre ("FIDEOS SIN GLUTEN",
+// "LECHE DESLACTOSADA"). La salida es guardar las palabras sueltas en el campo
+// `tokens` y consultarlo con array-contains.
+//
+// La MISMA normalización tiene que correr en el pipeline (subida_firebase/
+// tokens_busqueda.py): si un lado saca los acentos y el otro no, no matchea.
+object Busqueda {
+    /** Palabras de una letra ("X", "A") no discriminan y engordan el índice */
+    private const val LARGO_MINIMO = 2
+
+    /** Tope por documento: nombres larguísimos no justifican un array enorme */
+    private const val MAX_TOKENS = 30
+
+    private val SEPARADORES = Regex("[^A-Z0-9]+")
+    private val DIACRITICOS = Regex("\\p{Mn}+")
+
+    /** MAYÚSCULAS y sin acentos: "Té Verde" y "TE VERDE" tienen que ser lo mismo */
+    fun normalizar(texto: String): String =
+        java.text.Normalizer.normalize(texto, java.text.Normalizer.Form.NFD)
+            .replace(DIACRITICOS, "")
+            .uppercase(Locale.ROOT)
+
+    /** Las palabras de un producto (descripción + marca), sin repetir */
+    fun tokenizar(vararg textos: String?): List<String> =
+        textos.asSequence()
+            .filterNotNull()
+            .flatMap { normalizar(it).split(SEPARADORES).asSequence() }
+            .filter { it.length >= LARGO_MINIMO }
+            .distinct()
+            .take(MAX_TOKENS)
+            .toList()
+
+    /**
+     * Palabras de lo que escribió el usuario, de la más larga a la más corta.
+     * La más larga suele ser la más rara ("GLUTEN" antes que "SIN"), así que es
+     * la que conviene mandarle a Firestore; el resto se filtra en el teléfono.
+     */
+    fun palabrasDeConsulta(consulta: String): List<String> =
+        tokenizar(consulta).sortedByDescending { it.length }
 }
 
 object Precios {
@@ -120,6 +180,27 @@ object Formato {
         val cuerpo = if (centavos == 0) miles else "$miles,${centavos.toString().padStart(2, '0')}"
         return (if (total < 0) "-$" else "$") + cuerpo
     }
+
+    /**
+     * "2026-07-31" → "31/07". Agrega el año cuando no es el corriente: un
+     * "31/07" a secas de hace dos años se leería como si fuera de ayer.
+     */
+    fun fechaCorta(iso: String): String? {
+        val partes = iso.split("-")
+        if (partes.size != 3 || partes[0].length != 4) return null
+        val (anio, mes, dia) = partes
+        val actual = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR).toString()
+        return if (anio == actual) "$dia/$mes" else "$dia/$mes/${anio.takeLast(2)}"
+    }
+
+    /** Enteros con separador de miles: 23893 → "23.893" */
+    fun entero(valor: Int): String =
+        valor.toString().reversed().chunked(3).joinToString(".").reversed()
+
+    /** Cantidades sin decimales de adorno: "2", "1,5" */
+    fun cantidad(valor: Double): String =
+        if (valor % 1.0 == 0.0) valor.toInt().toString()
+        else String.format(Locale.ROOT, "%.2f", valor).trimEnd('0').trimEnd('.').replace('.', ',')
 
     /** "+6,8%" / "-3,1%"; sin signo para valores en cero */
     fun porcentaje(valor: Double): String {
@@ -237,6 +318,42 @@ data class CategoriaMeta(
 data class CatalogoEstructura(
     val categorias: List<CategoriaMeta> = emptyList()
 )
+
+// catalogo_meta/precios: en qué estado está el catálogo de precios. Lo escribe
+// el pipeline (actualizar_precios.py la fecha, regenerar_estructura_tandil.py
+// la cobertura). La app lo muestra tal cual es: el número que vale es
+// "productos CON PRECIO", no el total de la base — que incluye miles de cosas
+// que no se consiguen en Tandil y sería inflar el dato.
+data class EstadoPrecios(
+    val fecha_datos: String = "",
+    val productos_con_precio: Int = 0,
+    val precios_totales: Int = 0,
+    val por_cadena: Map<String, Int> = emptyMap()
+) {
+    /** Cuántas cadenas aportan precios hoy */
+    fun cadenas(): Int = por_cadena.count { it.value > 0 }
+
+    /** Hay algo que valga la pena mostrar */
+    fun tieneDatos(): Boolean = productos_con_precio > 0
+}
+
+// catalogo_meta/escaneo: interruptor remoto del lector de tickets. Existe porque
+// el lector depende de un proveedor de IA externo, y cuando ese proveedor se cae
+// o se queda sin cuota no tiene sentido que el usuario saque una foto, espere y
+// recién ahí se coma un error. Se cambia desde la consola de Firebase, sin
+// publicar una versión nueva en Play.
+//
+// `habilitado = true` por defecto A PROPÓSITO: si el documento no existe o
+// Firestore no responde, el lector sigue andando. Un problema de red no tiene
+// por qué apagar una función que funciona.
+data class EstadoEscaneoTicket(
+    val habilitado: Boolean = true,
+    val mensaje: String = ""
+) {
+    /** Qué contarle al usuario cuando está apagado, con un texto de reserva. */
+    fun mensajeODefault(): String =
+        mensaje.ifBlank { "El lector de tickets está en mantenimiento. Volvé a probar en unos días." }
+}
 
 enum class OrdenCatalogo { ALFABETICO, PRECIO_ASC, PRECIO_DESC }
 

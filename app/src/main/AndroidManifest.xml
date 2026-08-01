@@ -3,9 +3,15 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Para avisar "sin conexión · usando precios guardados" en la barra -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Confirmación háptica al escanear un código (ScannerHelper y Modo Súper).
+         Sin declararlo, Vibrator.vibrate tira SecurityException y voltea la app. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
+        android:name=".GondolaApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -23,6 +29,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!-- Escáner del Catálogo en vertical. ZXing declara su CaptureActivity
+             como "sensorLandscape" y obliga a girar el teléfono; declarando acá
+             una subclase propia en "portrait" pisamos esa orientación y queda
+             igual que el Modo Súper. El resto de los atributos son los mismos
+             que usa la librería. -->
+        <activity
+            android:name=".ui.screens.CaptureActivityVertical"
+            android:clearTaskOnLaunch="true"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:stateNotNeeded="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:windowSoftInputMode="stateAlwaysHidden" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

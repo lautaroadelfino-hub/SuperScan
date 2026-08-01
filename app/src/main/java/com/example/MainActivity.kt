@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
                     return CatalogViewModel(firebaseRepository) as T
                 }
                 if (modelClass.isAssignableFrom(AuthViewModel::class.java)) {
-                    return AuthViewModel() as T
+                    return AuthViewModel(firebaseRepository) as T
                 }
                 throw IllegalArgumentException("Unknown ViewModel class")
             }

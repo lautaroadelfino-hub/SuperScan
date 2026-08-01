@@ -65,8 +65,21 @@ class CatalogViewModel(
     var estructura by mutableStateOf<EstadoEstructura>(EstadoEstructura.Cargando)
         private set
 
+    /** Cobertura del catálogo, para el sello al pie de la grilla */
+    var estadoPrecios by mutableStateOf<com.example.data.EstadoPrecios?>(null)
+        private set
+
     init {
         cargarEstructura()
+        viewModelScope.launch {
+            estadoPrecios = try {
+                firebaseRepository.getEstadoPrecios()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null // sin dato, el sello no se muestra
+            }
+        }
     }
 
     fun cargarEstructura() {
@@ -160,6 +173,17 @@ class CatalogViewModel(
     }
 
     fun limpiarBusqueda() = onSearchQueryChange("")
+
+    /**
+     * Búsqueda que llega de otra solapa (el buscador de la portada, al dar
+     * Enter). Vuelve a la raíz del catálogo: si el stack quedó en un detalle,
+     * los resultados no se verían.
+     */
+    fun buscarDesdeLaPortada(query: String) {
+        navStack.clear()
+        navStack.add(Destino.Categorias)
+        onSearchQueryChange(query)
+    }
 
     // --- Detalle de producto ---
 

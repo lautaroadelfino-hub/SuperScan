@@ -35,6 +35,21 @@ val gondola_light_surfaceVariant = Color(0xFFE3EAE2)
 val gondola_light_onSurfaceVariant = Color(0xFF465248)
 val gondola_light_outline = Color(0xFFC2CCC2)
 
+// --- Variante opcional "Almacén" (azul de almacén de barrio, papel más cálido).
+// Mismo amarillo y mismo rojo de error: lo que cambia es la familia fría.
+// Se activa con VarianteGondola.ALMACEN en MyApplicationTheme.
+val almacen_primary = Color(0xFF2F55A4)
+val almacen_primaryContainer = Color(0xFFC9D8F4)
+val almacen_onPrimaryContainer = Color(0xFF0C224E)
+val almacen_secondary = Color(0xFF4A5A78)
+val almacen_secondaryContainer = Color(0xFFD7E1F3)
+val almacen_onSecondaryContainer = Color(0xFF101F3C)
+val almacen_background = Color(0xFFF6F4EE)
+val almacen_surfaceVariant = Color(0xFFE9E6DC)
+val almacen_onSurfaceVariant = Color(0xFF4C5148)
+val almacen_outline = Color(0xFFCCC8BB)
+val almacen_ink = Color(0xFF181B22)
+
 // --- Tema oscuro ("noche") ---
 val gondola_dark_primary = Color(0xFF4CC38A)
 val gondola_dark_onPrimary = Color(0xFF06301C)

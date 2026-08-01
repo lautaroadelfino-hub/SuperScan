@@ -23,8 +23,22 @@ data class TicketModel(
     val id: String = "",
     val userId: String = "",
     val storeName: String = "",
+    /**
+     * Id de la cadena (la clave del map `precios`), no el nombre legible. Sin
+     * esto los precios de la compra no se pueden comparar contra nada: es el
+     * mismo motivo por el que `observaciones_precios` guarda `cadena` además de
+     * `comercio`. Vacío en los tickets viejos, cargados por foto.
+     */
+    val cadena: String = "",
     val date: String = "",
     val totalAmount: Double = 0.0,
+    /**
+     * Lo que sumaban los productos escaneados. La diferencia contra
+     * `totalAmount` —el de la caja— son los descuentos y promociones, que la app
+     * todavía no desglosa. Se guarda igual para tener el dato el día que se
+     * trabajen, en vez de arrancar sin historia.
+     */
+    val totalEscaneado: Double = 0.0,
     val items: List<TicketItemModel> = emptyList()
 )
 
@@ -38,12 +52,15 @@ data class TicketItemModel(
 )
 
 // Refleja la estructura real de observaciones_precios:
-// { ean, descripcionCruda, comercio, precio, fecha, fuente, uid }
+// { ean, descripcionCruda, comercio, cadena, precio, fecha, fuente, uid }
 data class ObservacionPrecio(
     val id: String = "",
     val ean: String = "",
     val descripcionCruda: String = "",
+    /** Nombre legible del comercio, para mostrar */
     val comercio: String = "",
+    /** Id de cadena (clave del map `precios`), para agregar del lado del pipeline */
+    val cadena: String = "",
     val precio: Double = 0.0,
     val fecha: String = "",        // YYYY-MM-DD
     val fuente: String = "ticket", // "ticket" | "gondola"
@@ -69,6 +86,13 @@ data class SharedListItemModel(
     val targetQuantity: Double = 0.0,
     val scannedQuantity: Double = 0.0,
     val expectedPrice: Double = 0.0,
+    /**
+     * Lo que valía el producto cuando entró al changuito, en el súper donde se
+     * estaba comprando. Distinto de `expectedPrice`, que es la estimación del
+     * catálogo con la que se armó la lista: este es el precio de la compra real
+     * y es el que termina en el ticket.
+     */
+    val precioPagado: Double = 0.0,
     val scanned: Boolean = false
 )
 
@@ -123,6 +147,10 @@ class FirebaseRepository {
                 ean = ean,
                 descripcionCruda = item.productName,
                 comercio = finalTicket.storeName,
+                // Sin la cadena el precio no sirve para comparar. Los tickets
+                // cargados por foto la dejaban vacía; los del Modo Súper sí la
+                // saben, porque se elige el súper al empezar a comprar.
+                cadena = finalTicket.cadena,
                 precio = item.unitPrice,
                 fecha = finalTicket.date,
                 fuente = "ticket",
@@ -190,19 +218,15 @@ class FirebaseRepository {
     // orderBy(descripcion) + startAt/endAt sobre ambas colecciones,
     // uniendo sin duplicar por ean. Puede lanzar: el ViewModel captura.
     suspend fun searchProductsByDescription(query: String): List<ProductModel> {
-        val q = query.trim().uppercase(Locale.ROOT)
+        val q = Busqueda.normalizar(query).trim()
         if (q.isEmpty()) return emptyList()
 
         val resultados = LinkedHashMap<String, ProductModel>()
+
+        // --- Pasada 1: por PREFIJO de la descripci\u00f3n ---
+        // Es lo que uno espera al escribir el comienzo del nombre.
         for (coleccion in listOf("productos", "productos_usuarios")) {
-            var busqueda: Query = db.collection(coleccion)
-            // El cat\u00e1logo global trae productos de todo el pa\u00eds y altas de Open
-            // Food Facts que no se consiguen en Tandil: se filtran para no
-            // ensuciar la b\u00fasqueda. productos_usuarios no lleva el flag.
-            if (coleccion == "productos") {
-                busqueda = busqueda.whereEqualTo("en_tandil", true)
-            }
-            val snapshot = busqueda
+            val snapshot = soloVisibles(coleccion)
                 .orderBy("descripcion")
                 .startAt(q)
                 .endAt(q + "\uf8ff")
@@ -217,21 +241,77 @@ class FirebaseRepository {
                 }
             }
         }
+
+        // --- Pasada 2: por PALABRA sobre el array `tokens` ---
+        // Encuentra "SIN GLUTEN" o "SIN TACC" aunque est\u00e9n en el medio o al
+        // final del nombre, que es donde suelen estar. Los documentos que
+        // todav\u00eda no tienen `tokens` (falta correr el pipeline) simplemente no
+        // aparecen ac\u00e1: la b\u00fasqueda por prefijo sigue funcionando igual.
+        val palabras = Busqueda.palabrasDeConsulta(q)
+        if (palabras.isNotEmpty()) {
+            // Firestore admite UN solo array-contains por consulta: se manda la
+            // palabra m\u00e1s discriminante y el resto se filtra en el tel\u00e9fono.
+            val principal = palabras.first()
+            val resto = palabras.drop(1)
+            for (coleccion in listOf("productos", "productos_usuarios")) {
+                try {
+                    val snapshot = soloVisibles(coleccion)
+                        .whereArrayContains("tokens", principal)
+                        .limit(40)
+                        .get()
+                        .await()
+
+                    snapshot.documents
+                        .mapNotNull { it.toProductModel() }
+                        .filter { producto -> resto.all { it in producto.tokens } }
+                        .forEach { producto ->
+                            if (!resultados.containsKey(producto.ean)) {
+                                resultados[producto.ean] = producto
+                            }
+                        }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Los minutos que Firestore tarda en construir el índice
+                    // nuevo, esta consulta falla. No puede llevarse puesta la
+                    // búsqueda por prefijo, que ya trajo resultados válidos.
+                    continue
+                }
+            }
+        }
         return resultados.values.toList()
     }
+
+    // El cat\u00e1logo global trae productos de todo el pa\u00eds y altas de Open Food
+    // Facts que no se consiguen en Tandil: se filtran para no ensuciar la
+    // b\u00fasqueda. productos_usuarios no lleva el flag.
+    private fun soloVisibles(coleccion: String): Query =
+        db.collection(coleccion).let {
+            if (coleccion == "productos") it.whereEqualTo("en_tandil", true) else it
+        }
 
     // --- CONSULTA 3: precio a mostrar ---
     // Prioridad: 1) observación más reciente del propio usuario,
     // 2) precio_publico, 3) precio_min (ver ProductModel.precioCatalogo).
     // Requiere el índice compuesto (ean, uid, fecha desc) de firestore.indexes.json.
     // Si el caller ya tiene el ProductModel, pasarlo evita releer el documento.
-    suspend fun getDisplayPrice(ean: String, producto: ProductModel? = null): DisplayPrice {
+    //
+    // `cadena` acota la observación al súper donde está parado el usuario. Sin
+    // eso, un precio informado en Vea se mostraba mientras comprabas en
+    // Carrefour: pasaba desapercibido en consultas sueltas, pero en el Modo
+    // Súper —donde elegís la cadena al entrar— sería un error en cada producto.
+    suspend fun getDisplayPrice(
+        ean: String,
+        producto: ProductModel? = null,
+        cadena: String? = null
+    ): DisplayPrice {
         return try {
             val uid = auth.currentUser?.uid
             if (uid != null) {
                 val obs = db.collection("observaciones_precios")
                     .whereEqualTo("ean", ean)
                     .whereEqualTo("uid", uid)
+                    .let { if (cadena != null) it.whereEqualTo("cadena", cadena) else it }
                     .orderBy("fecha", Query.Direction.DESCENDING)
                     .limit(1)
                     .get()
@@ -280,9 +360,25 @@ class FirebaseRepository {
     // Doc único catalogo_meta/estructura generado por el pipeline de carga:
     // categorías, subcategorías y marcas por subcategoría. Devuelve null si
     // todavía no fue generado. Queda en la caché offline tras la primera lectura.
+    // catalogo_meta/precios: de cuándo son los precios del catálogo (la fecha
+    // del dato de SEPA, no la de la subida). Un precio sin fecha no se puede
+    // juzgar: la app lo muestra arriba de todo. Lo escribe actualizar_precios.py.
+    suspend fun getEstadoPrecios(): EstadoPrecios? =
+        db.collection("catalogo_meta").document("precios").get().await()
+            .toObject(EstadoPrecios::class.java)
+
     suspend fun getCatalogoEstructura(): CatalogoEstructura? =
         db.collection("catalogo_meta").document("estructura").get().await()
             .toObject(CatalogoEstructura::class.java)
+
+    // catalogo_meta/escaneo: interruptor remoto del lector de tickets. Si el
+    // documento no está o la lectura falla, se asume habilitado: no queremos que
+    // un problema de red apague una función que anda.
+    suspend fun getEstadoEscaneoTicket(): EstadoEscaneoTicket =
+        runCatching {
+            db.collection("catalogo_meta").document("escaneo").get().await()
+                .toObject(EstadoEscaneoTicket::class.java)
+        }.getOrNull() ?: EstadoEscaneoTicket()
 
     // --- CONSULTA 6: productos de una subcategoría, paginados de a 20 ---
     // Índices compuestos requeridos en firestore.indexes.json:
@@ -334,16 +430,27 @@ class FirebaseRepository {
     suspend fun saveUserProduct(ean: String, descripcion: String, presentacion: String): ProductModel {
         val normalizedEan = Ean.normalizar(ean)
             ?: throw IllegalArgumentException("Código de barras inválido: $ean")
+        val nombre = "$descripcion $presentacion".trim().uppercase(Locale.ROOT)
         val prod = ProductModel(
             ean = normalizedEan,
-            descripcion = "$descripcion $presentacion".trim().uppercase(Locale.ROOT),
+            descripcion = nombre,
+            // Sin tokens el alta no aparecería en la búsqueda por palabra
+            tokens = Busqueda.tokenizar(nombre),
             fuente = "usuario"
         )
         db.collection("productos_usuarios").document(normalizedEan).set(prod).await()
         return prod
     }
 
-    suspend fun saveGondolaObservation(barcode: String, productName: String, price: Double) {
+    // El precio de góndola guarda SIEMPRE en qué cadena se vio: un precio sin
+    // súper no se puede comparar con nada. La cadena la elige el usuario al
+    // entrar al Modo Súper.
+    suspend fun saveGondolaObservation(
+        barcode: String,
+        productName: String,
+        price: Double,
+        cadenaId: String
+    ) {
         val uid = auth.currentUser?.uid ?: return
         val ean = Ean.normalizar(barcode)
             ?: throw IllegalArgumentException("Código de barras inválido: $barcode")
@@ -352,13 +459,35 @@ class FirebaseRepository {
             id = obsRef.id,
             ean = ean,
             descripcionCruda = productName,
-            comercio = "Modo Súper", // TODO: pedir el comercio al usuario
+            comercio = Cadenas.nombre(cadenaId),
+            cadena = cadenaId,
             precio = price,
             fecha = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date()),
             fuente = "gondola",
             uid = uid
         )
         obsRef.set(obs).await()
+    }
+
+    // --- CONSULTA 8: qué cadenas existen (para "¿en qué súper estás?") ---
+    // Firestore no tiene "distinct". Se toma una muestra de productos con precio
+    // y se unen las claves de sus maps `precios`: cuando el pipeline sume una
+    // cadena nueva, aparece sola en la app sin tocar el código. Ordenar por
+    // precio_min descendente garantiza filas con precios y no necesita índice
+    // compuesto. La lectura queda en la caché offline.
+    suspend fun cadenasConocidas(): List<String> {
+        val muestra = db.collection("productos")
+            .orderBy("precio_min", Query.Direction.DESCENDING)
+            .limit(40)
+            .get()
+            .await()
+        val ids = muestra.documents
+            .mapNotNull { it.toProductModel() }
+            .flatMap { producto -> producto.precios.filterValues { it > 0.0 }.keys }
+            .toMutableSet()
+        // Sin red y sin caché todavía: el diccionario de nombres es el último recurso
+        if (ids.isEmpty()) ids += Cadenas.conocidas()
+        return ids.sortedBy { Cadenas.nombre(it) }
     }
 
     // ... Shared Lists ...
@@ -439,6 +568,103 @@ class FirebaseRepository {
     suspend fun toggleItemScanned(listId: String, itemId: String, scanned: Boolean) {
         val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
         itemRef.update("scanned", scanned).await()
+    }
+
+    /**
+     * Suma uno al changuito: el producto se escaneó en la góndola y va al carro.
+     *
+     * Se guarda en el ítem de la lista y no en memoria de la pantalla porque una
+     * compra dura media hora: el teléfono se bloquea, Android puede matar la app,
+     * y perder el carrito a mitad del súper sería insoportable. Como además la
+     * lista es compartida, el otro que está comprando ve en el momento lo que ya
+     * se puso en el changuito.
+     *
+     * `precioPagado` queda congelado en el primer escaneo: es lo que valía cuando
+     * el producto entró al carro.
+     */
+    suspend fun sumarAlChanguito(listId: String, itemId: String, precio: Double) {
+        val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
+        db.runTransaction { tx ->
+            val actual = tx.get(itemRef)
+            val cantidad = (actual.getDouble("scannedQuantity") ?: 0.0) + 1.0
+            val yaTenia = actual.getDouble("precioPagado") ?: 0.0
+            tx.update(
+                itemRef,
+                mapOf(
+                    "scannedQuantity" to cantidad,
+                    "scanned" to true,
+                    "precioPagado" to if (yaTenia > 0.0) yaTenia else precio
+                )
+            )
+        }.await()
+    }
+
+    /** Deshacer: saca una unidad del changuito, y si llega a cero destilda. */
+    suspend fun restarDelChanguito(listId: String, itemId: String) {
+        val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
+        db.runTransaction { tx ->
+            val actual = tx.get(itemRef)
+            val cantidad = ((actual.getDouble("scannedQuantity") ?: 0.0) - 1.0).coerceAtLeast(0.0)
+            tx.update(itemRef, mapOf("scannedQuantity" to cantidad, "scanned" to (cantidad > 0.0)))
+        }.await()
+    }
+
+    /**
+     * Cierra la compra: convierte lo que quedó en el changuito en un ticket.
+     *
+     * `totalReal` es lo que salió en la caja, que el usuario tipea al terminar.
+     * No se calcula: entre lo que suman los productos y lo que se paga están los
+     * descuentos y las promociones, que la app todavía no desglosa. Preguntarlo
+     * cuesta cinco segundos y hace que el gasto del mes sea exacto en vez de
+     * estimado.
+     *
+     * Devuelve el ticket guardado, o null si no había nada escaneado.
+     */
+    suspend fun cerrarCompra(
+        listId: String,
+        cadena: String,
+        nombreComercio: String,
+        totalReal: Double,
+        fecha: String
+    ): TicketModel? {
+        val docs = db.collection("shared_lists").document(listId).collection("items").get().await()
+        val comprados = docs.documents
+            .mapNotNull { it.toObject(SharedListItemModel::class.java) }
+            .filter { it.scannedQuantity > 0.0 }
+        if (comprados.isEmpty()) return null
+
+        val items = comprados.map {
+            val unitario = if (it.precioPagado > 0.0) it.precioPagado else it.expectedPrice
+            TicketItemModel(
+                productName = it.productName,
+                category = it.category.ifBlank { "Varios" },
+                quantity = it.scannedQuantity,
+                unitPrice = unitario,
+                totalPrice = unitario * it.scannedQuantity,
+                barcode = it.barcode
+            )
+        }
+        val ticket = TicketModel(
+            storeName = nombreComercio,
+            cadena = cadena,
+            date = fecha,
+            totalAmount = totalReal,
+            totalEscaneado = items.sumOf { it.totalPrice },
+            items = items
+        )
+        saveTicket(ticket)
+        vaciarChanguito(listId)
+        return ticket
+    }
+
+    /** Vacía el changuito de toda la lista, sin borrar los ítems. */
+    suspend fun vaciarChanguito(listId: String) {
+        val items = db.collection("shared_lists").document(listId).collection("items").get().await()
+        val lote = db.batch()
+        items.documents.forEach {
+            lote.update(it.reference, mapOf("scannedQuantity" to 0.0, "scanned" to false, "precioPagado" to 0.0))
+        }
+        lote.commit().await()
     }
 
     suspend fun updateItemQuantity(listId: String, itemId: String, quantity: Double) {

@@ -224,3 +224,63 @@ class ProductModelPrecioTest {
         assertEquals(null, ProductModel().precioEstimado())
     }
 }
+
+class BusquedaTest {
+
+    @Test
+    fun `normaliza a mayusculas y sin acentos`() {
+        assertEquals("TE VERDE", Busqueda.normalizar("Té Verde"))
+        assertEquals("ALMIDON DE MAIZ", Busqueda.normalizar("almidón de maíz"))
+    }
+
+    @Test
+    fun `tokeniza descripcion y marca sin repetir`() {
+        val tokens = Busqueda.tokenizar("FIDEOS SIN GLUTEN 500G", "Matarazzo")
+        assertEquals(listOf("FIDEOS", "SIN", "GLUTEN", "500G", "MATARAZZO"), tokens)
+    }
+
+    @Test
+    fun `descarta palabras de una sola letra`() {
+        assertFalse(Busqueda.tokenizar("ARROZ A GRANEL").contains("A"))
+        assertTrue(Busqueda.tokenizar("ARROZ A GRANEL").contains("GRANEL"))
+    }
+
+    @Test
+    fun `separa por signos y no solo por espacios`() {
+        assertEquals(listOf("LECHE", "ENTERA", "1L"), Busqueda.tokenizar("LECHE ENTERA / 1L"))
+    }
+
+    // Lo que motivó todo: "sin gluten" va en el medio del nombre, no al principio
+    @Test
+    fun `la consulta prioriza la palabra mas discriminante`() {
+        assertEquals(listOf("GLUTEN", "SIN"), Busqueda.palabrasDeConsulta("sin gluten"))
+        assertEquals(listOf("TACC", "SIN"), Busqueda.palabrasDeConsulta("Sin TACC"))
+    }
+
+    @Test
+    fun `un producto con la palabra en el medio contiene el token`() {
+        val tokens = Busqueda.tokenizar("FIDEOS TIRABUZON SIN GLUTEN 500 G")
+        assertTrue(Busqueda.palabrasDeConsulta("sin gluten").all { it in tokens })
+    }
+}
+
+class FechaCortaTest {
+
+    @Test
+    fun `fecha del anio corriente va sin anio`() {
+        val anio = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        assertEquals("31/07", Formato.fechaCorta("$anio-07-31"))
+    }
+
+    // Un "31/07" pelado de hace dos años se leería como si fuera de ayer
+    @Test
+    fun `fecha de otro anio lo aclara`() {
+        assertEquals("31/07/19", Formato.fechaCorta("2019-07-31"))
+    }
+
+    @Test
+    fun `formato invalido no inventa una fecha`() {
+        assertEquals(null, Formato.fechaCorta("31/07/2026"))
+        assertEquals(null, Formato.fechaCorta(""))
+    }
+}
