@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ dibuja el splash por su cuenta: se le dan los colores de marca
+     y el ícono de la app. Sin animación custom, como pide MARCA-E-ICONO.md. -->
+<resources>
+
+    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/gondola_papel</item>
+        <item name="android:windowSplashScreenBackground">@color/gondola_papel</item>
+        <!-- Lienzo de 240dp con el arte dentro del círculo de 160dp: si se le
+             pasa el ícono del launcher, Android 12 lo recorta. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_gondola</item>
+    </style>
+</resources>

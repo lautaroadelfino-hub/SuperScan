@@ -38,12 +38,15 @@ data class TicketItemModel(
 )
 
 // Refleja la estructura real de observaciones_precios:
-// { ean, descripcionCruda, comercio, precio, fecha, fuente, uid }
+// { ean, descripcionCruda, comercio, cadena, precio, fecha, fuente, uid }
 data class ObservacionPrecio(
     val id: String = "",
     val ean: String = "",
     val descripcionCruda: String = "",
+    /** Nombre legible del comercio, para mostrar */
     val comercio: String = "",
+    /** Id de cadena (clave del map `precios`), para agregar del lado del pipeline */
+    val cadena: String = "",
     val precio: Double = 0.0,
     val fecha: String = "",        // YYYY-MM-DD
     val fuente: String = "ticket", // "ticket" | "gondola"
@@ -190,19 +193,15 @@ class FirebaseRepository {
     // orderBy(descripcion) + startAt/endAt sobre ambas colecciones,
     // uniendo sin duplicar por ean. Puede lanzar: el ViewModel captura.
     suspend fun searchProductsByDescription(query: String): List<ProductModel> {
-        val q = query.trim().uppercase(Locale.ROOT)
+        val q = Busqueda.normalizar(query).trim()
         if (q.isEmpty()) return emptyList()
 
         val resultados = LinkedHashMap<String, ProductModel>()
+
+        // --- Pasada 1: por PREFIJO de la descripci\u00f3n ---
+        // Es lo que uno espera al escribir el comienzo del nombre.
         for (coleccion in listOf("productos", "productos_usuarios")) {
-            var busqueda: Query = db.collection(coleccion)
-            // El cat\u00e1logo global trae productos de todo el pa\u00eds y altas de Open
-            // Food Facts que no se consiguen en Tandil: se filtran para no
-            // ensuciar la b\u00fasqueda. productos_usuarios no lleva el flag.
-            if (coleccion == "productos") {
-                busqueda = busqueda.whereEqualTo("en_tandil", true)
-            }
-            val snapshot = busqueda
+            val snapshot = soloVisibles(coleccion)
                 .orderBy("descripcion")
                 .startAt(q)
                 .endAt(q + "\uf8ff")
@@ -217,8 +216,54 @@ class FirebaseRepository {
                 }
             }
         }
+
+        // --- Pasada 2: por PALABRA sobre el array `tokens` ---
+        // Encuentra "SIN GLUTEN" o "SIN TACC" aunque est\u00e9n en el medio o al
+        // final del nombre, que es donde suelen estar. Los documentos que
+        // todav\u00eda no tienen `tokens` (falta correr el pipeline) simplemente no
+        // aparecen ac\u00e1: la b\u00fasqueda por prefijo sigue funcionando igual.
+        val palabras = Busqueda.palabrasDeConsulta(q)
+        if (palabras.isNotEmpty()) {
+            // Firestore admite UN solo array-contains por consulta: se manda la
+            // palabra m\u00e1s discriminante y el resto se filtra en el tel\u00e9fono.
+            val principal = palabras.first()
+            val resto = palabras.drop(1)
+            for (coleccion in listOf("productos", "productos_usuarios")) {
+                try {
+                    val snapshot = soloVisibles(coleccion)
+                        .whereArrayContains("tokens", principal)
+                        .limit(40)
+                        .get()
+                        .await()
+
+                    snapshot.documents
+                        .mapNotNull { it.toProductModel() }
+                        .filter { producto -> resto.all { it in producto.tokens } }
+                        .forEach { producto ->
+                            if (!resultados.containsKey(producto.ean)) {
+                                resultados[producto.ean] = producto
+                            }
+                        }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Los minutos que Firestore tarda en construir el índice
+                    // nuevo, esta consulta falla. No puede llevarse puesta la
+                    // búsqueda por prefijo, que ya trajo resultados válidos.
+                    continue
+                }
+            }
+        }
         return resultados.values.toList()
     }
+
+    // El cat\u00e1logo global trae productos de todo el pa\u00eds y altas de Open Food
+    // Facts que no se consiguen en Tandil: se filtran para no ensuciar la
+    // b\u00fasqueda. productos_usuarios no lleva el flag.
+    private fun soloVisibles(coleccion: String): Query =
+        db.collection(coleccion).let {
+            if (coleccion == "productos") it.whereEqualTo("en_tandil", true) else it
+        }
 
     // --- CONSULTA 3: precio a mostrar ---
     // Prioridad: 1) observación más reciente del propio usuario,
@@ -280,6 +325,13 @@ class FirebaseRepository {
     // Doc único catalogo_meta/estructura generado por el pipeline de carga:
     // categorías, subcategorías y marcas por subcategoría. Devuelve null si
     // todavía no fue generado. Queda en la caché offline tras la primera lectura.
+    // catalogo_meta/precios: de cuándo son los precios del catálogo (la fecha
+    // del dato de SEPA, no la de la subida). Un precio sin fecha no se puede
+    // juzgar: la app lo muestra arriba de todo. Lo escribe actualizar_precios.py.
+    suspend fun getEstadoPrecios(): EstadoPrecios? =
+        db.collection("catalogo_meta").document("precios").get().await()
+            .toObject(EstadoPrecios::class.java)
+
     suspend fun getCatalogoEstructura(): CatalogoEstructura? =
         db.collection("catalogo_meta").document("estructura").get().await()
             .toObject(CatalogoEstructura::class.java)
@@ -334,16 +386,27 @@ class FirebaseRepository {
     suspend fun saveUserProduct(ean: String, descripcion: String, presentacion: String): ProductModel {
         val normalizedEan = Ean.normalizar(ean)
             ?: throw IllegalArgumentException("Código de barras inválido: $ean")
+        val nombre = "$descripcion $presentacion".trim().uppercase(Locale.ROOT)
         val prod = ProductModel(
             ean = normalizedEan,
-            descripcion = "$descripcion $presentacion".trim().uppercase(Locale.ROOT),
+            descripcion = nombre,
+            // Sin tokens el alta no aparecería en la búsqueda por palabra
+            tokens = Busqueda.tokenizar(nombre),
             fuente = "usuario"
         )
         db.collection("productos_usuarios").document(normalizedEan).set(prod).await()
         return prod
     }
 
-    suspend fun saveGondolaObservation(barcode: String, productName: String, price: Double) {
+    // El precio de góndola guarda SIEMPRE en qué cadena se vio: un precio sin
+    // súper no se puede comparar con nada. La cadena la elige el usuario al
+    // entrar al Modo Súper.
+    suspend fun saveGondolaObservation(
+        barcode: String,
+        productName: String,
+        price: Double,
+        cadenaId: String
+    ) {
         val uid = auth.currentUser?.uid ?: return
         val ean = Ean.normalizar(barcode)
             ?: throw IllegalArgumentException("Código de barras inválido: $barcode")
@@ -352,13 +415,35 @@ class FirebaseRepository {
             id = obsRef.id,
             ean = ean,
             descripcionCruda = productName,
-            comercio = "Modo Súper", // TODO: pedir el comercio al usuario
+            comercio = Cadenas.nombre(cadenaId),
+            cadena = cadenaId,
             precio = price,
             fecha = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date()),
             fuente = "gondola",
             uid = uid
         )
         obsRef.set(obs).await()
+    }
+
+    // --- CONSULTA 8: qué cadenas existen (para "¿en qué súper estás?") ---
+    // Firestore no tiene "distinct". Se toma una muestra de productos con precio
+    // y se unen las claves de sus maps `precios`: cuando el pipeline sume una
+    // cadena nueva, aparece sola en la app sin tocar el código. Ordenar por
+    // precio_min descendente garantiza filas con precios y no necesita índice
+    // compuesto. La lectura queda en la caché offline.
+    suspend fun cadenasConocidas(): List<String> {
+        val muestra = db.collection("productos")
+            .orderBy("precio_min", Query.Direction.DESCENDING)
+            .limit(40)
+            .get()
+            .await()
+        val ids = muestra.documents
+            .mapNotNull { it.toProductModel() }
+            .flatMap { producto -> producto.precios.filterValues { it > 0.0 }.keys }
+            .toMutableSet()
+        // Sin red y sin caché todavía: el diccionario de nombres es el último recurso
+        if (ids.isEmpty()) ids += Cadenas.conocidas()
+        return ids.sortedBy { Cadenas.nombre(it) }
     }
 
     // ... Shared Lists ...

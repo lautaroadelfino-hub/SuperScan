@@ -30,6 +30,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "en_tandil", "order": "ASCENDING" },
+        { "fieldPath": "tokens", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "productos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "en_tandil", "order": "ASCENDING" },
         { "fieldPath": "categoria", "order": "ASCENDING" },
         { "fieldPath": "subcategoria", "order": "ASCENDING" },
         { "fieldPath": "descripcion", "order": "ASCENDING" }

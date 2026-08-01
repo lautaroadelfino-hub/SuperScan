@@ -143,26 +143,17 @@ fun StatsScreen(receipts: List<ReceiptEntity>, prefs: Double, onUpdateBudget: (D
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Cards
+        // Los 3 KPI, en tarjetas blancas sobre el papel: el color lo pone el
+        // dato (la variación en rojo o verde), no el fondo.
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Gasto", style = MaterialTheme.typography.labelSmall)
-                    Text(Formato.precio(filteredSpent), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-            }
-            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Vs Mes Ant.", style = MaterialTheme.typography.labelSmall)
-                    Text(Formato.porcentaje(variation), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (variation > 0) Color(0xFFD32F2F) else Color(0xFF388E3C))
-                }
-            }
-            Card(modifier = Modifier.weight(1f), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("Tickets", style = MaterialTheme.typography.labelSmall)
-                    Text("$filteredTickets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-            }
+            TarjetaKpi("Gasto", Formato.precio(filteredSpent), Modifier.weight(1f))
+            TarjetaKpi(
+                titulo = "Vs mes anterior",
+                valor = Formato.porcentaje(variation),
+                modifier = Modifier.weight(1f),
+                colorValor = if (variation > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+            TarjetaKpi("Tickets", "$filteredTickets", Modifier.weight(1f))
         }
         
         Spacer(modifier = Modifier.height(24.dp))
@@ -391,3 +382,34 @@ fun ProductPriceChart(observations: List<PriceObservation>) {
     }
 }
 
+
+@Composable
+private fun TarjetaKpi(
+    titulo: String,
+    valor: String,
+    modifier: Modifier = Modifier,
+    colorValor: Color = Color.Unspecified
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                titulo,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            Text(
+                valor,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (colorValor == Color.Unspecified) MaterialTheme.colorScheme.onSurface else colorValor,
+                maxLines = 1
+            )
+        }
+    }
+}

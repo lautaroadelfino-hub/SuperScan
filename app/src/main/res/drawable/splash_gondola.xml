@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash de Góndola para Android 11 y anteriores: papel de fondo y el ícono
+     de La Etiqueta centrado, sin animación. En Android 12+ lo maneja el
+     sistema con los atributos de values-v31/themes.xml. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/gondola_papel" />
+    <!-- El ícono del splash es su propio drawable: @mipmap/ic_launcher acá se
+         dibujaría como un cuadrado verde, porque en un layer-list el adaptive
+         icon no pasa por la máscara del launcher. -->
+    <item
+        android:width="180dp"
+        android:height="180dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_splash_gondola" />
+</layer-list>

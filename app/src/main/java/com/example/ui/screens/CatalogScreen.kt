@@ -63,7 +63,8 @@ import com.example.data.SubcategoriaMeta
 fun CatalogScreen(
     catalogViewModel: CatalogViewModel,
     hasCurrentList: Boolean,
-    onAddToList: (ProductModel) -> Unit
+    onAddToList: (ProductModel) -> Unit,
+    onMensaje: (String) -> Unit
 ) {
     val destino = catalogViewModel.navStack.last()
     val busquedaActiva = catalogViewModel.searchQuery.isNotBlank() &&
@@ -136,6 +137,7 @@ fun CatalogScreen(
                 )
                 destino is CatalogViewModel.Destino.Categorias -> CategoriasGrid(
                     estado = catalogViewModel.estructura,
+                    estadoPrecios = catalogViewModel.estadoPrecios,
                     onRetry = { catalogViewModel.cargarEstructura() },
                     onCategoria = { catalogViewModel.abrirCategoria(it) }
                 )
@@ -162,15 +164,14 @@ fun CatalogScreen(
         }
     }
 
-    if (catalogViewModel.errorMessage != null) {
-        AlertDialog(
-            onDismissRequest = { catalogViewModel.clearError() },
-            title = { Text("Aviso") },
-            text = { Text(catalogViewModel.errorMessage!!) },
-            confirmButton = {
-                TextButton(onClick = { catalogViewModel.clearError() }) { Text("OK") }
-            }
-        )
+    // Un error de acción va al Snackbar del shell: no frena la navegación ni
+    // obliga a tocar "OK" (fix 1 del rediseño).
+    val error = catalogViewModel.errorMessage
+    LaunchedEffect(error) {
+        if (error != null) {
+            onMensaje(error)
+            catalogViewModel.clearError()
+        }
     }
 }
 
@@ -179,6 +180,7 @@ fun CatalogScreen(
 @Composable
 private fun CategoriasGrid(
     estado: CatalogViewModel.EstadoEstructura,
+    estadoPrecios: com.example.data.EstadoPrecios?,
     onRetry: () -> Unit,
     onCategoria: (String) -> Unit
 ) {
@@ -212,24 +214,32 @@ private fun CategoriasGrid(
                 items(estado.estructura.categorias.size) { i ->
                     val categoria = estado.estructura.categorias[i]
                     val estilo = CategoriasUi.estilo(categoria.nombre)
+                    // Tarjeta horizontal: el ícono de color a la izquierda y el
+                    // nombre al lado leen más rápido que un ícono centrado.
                     Card(
                         onClick = { onCategoria(categoria.nombre) },
+                        shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .size(40.dp)
                                     .background(estilo.color.copy(alpha = 0.18f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(estilo.icono, contentDescription = null, tint = estilo.color)
+                                Icon(
+                                    estilo.icono,
+                                    contentDescription = null,
+                                    tint = estilo.color,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 categoria.nombre,
                                 style = MaterialTheme.typography.titleSmall,
@@ -239,6 +249,10 @@ private fun CategoriasGrid(
                             )
                         }
                     }
+                }
+                // Al pie de la grilla: qué tan grande es lo que estás por navegar
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SelloCobertura(estado = estadoPrecios)
                 }
             }
         }
@@ -449,8 +463,9 @@ private fun SearchResultsList(
     if (resultados.isEmpty()) {
         if (!isSearching) {
             MensajeCentrado(
-                titulo = "No se encontraron productos",
-                detalle = "La búsqueda es por el comienzo de la descripción.",
+                titulo = "No encontramos ese producto",
+                detalle = "Buscamos por el comienzo del nombre y por palabras sueltas. " +
+                    "Probá con otra palabra, o con menos.",
                 onRetry = null
             )
         }
@@ -530,17 +545,24 @@ private fun ProductoCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Bottom
                 ) {
-                    PrecioCompacto(producto.precioCatalogo())
+                    Box(modifier = Modifier.weight(1f)) {
+                        PrecioCompacto(producto.precioCatalogo())
+                    }
                     if (hasCurrentList) {
-                        IconButton(
+                        Surface(
                             onClick = { onAddToList(producto) },
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.size(28.dp)
                         ) {
-                            Icon(
-                                Icons.Default.Add,
-                                contentDescription = "Añadir a lista",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Agregar a una lista",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -566,11 +588,22 @@ private fun PrecioCompacto(precio: DisplayPrice) {
                 Text(Formato.precio(precio.precio), style = MaterialTheme.typography.titleMedium)
                 Text("desde · ${Cadenas.nombre(precio.cadena)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            is DisplayPrice.None -> Text(
-                "sin precio todavía",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // "Sin precio" no es un hueco: es una invitación a completarlo
+            is DisplayPrice.None -> {
+                Text(
+                    "sin precio todavía",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "informalo en el súper →",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             is DisplayPrice.Failure -> Text(
                 "—",
                 style = MaterialTheme.typography.labelSmall,
@@ -668,7 +701,7 @@ private fun PlaceholderImagen(size: Dp) {
 fun SkeletonBox(modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "skeleton")
     val alpha by transition.animateFloat(
-        initialValue = 0.3f,
+        initialValue = 0.35f,
         targetValue = 0.75f,
         animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
         label = "skeleton_alpha"

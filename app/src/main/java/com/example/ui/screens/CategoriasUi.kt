@@ -69,13 +69,15 @@ object CategoriasUi {
     // Paleta única para series de gráficos (torta de Stats, curvas de precio):
     // misma familia de colores que las categorías, para que toda la app
     // comparta un solo lenguaje cromático en vez de listas sueltas por pantalla.
+    // Los tonos van bien separados en el círculo cromático: dos series vecinas
+    // nunca son "dos verdes" que se confunden en una torta o en dos curvas.
     val PALETA_GRAFICOS = listOf(
         Color(0xFF1E7A4E), // Verde Góndola (primary de la marca)
-        Color(0xFF43A047), // verde
         Color(0xFFFB8C00), // naranja
-        Color(0xFF00ACC1), // cian
+        Color(0xFF1E88E5), // azul
         Color(0xFFD81B60), // rosa
         Color(0xFF5E35B1), // violeta
+        Color(0xFF00ACC1), // cian
         Color(0xFF8D6E63), // marrón
         Color(0xFFE53935)  // rojo
     )

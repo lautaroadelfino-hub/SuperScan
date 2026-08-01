@@ -41,3 +41,7 @@ subida_firebase/sim_nombres.txt
 .claude/skills/compose-*/
 .claude/skills/kotlin-*/
 .claude/skills/using-chrisbanes-skills/
+
+# Caches de los scripts del pipeline (se regeneran solos)
+subida_firebase/categorias_altas.json
+__pycache__/

@@ -13,6 +13,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // catalogo_meta/precios: SOLO agregados (cuántos productos con precio,
+    // cuántos precios, de qué fecha). Lectura pública porque la pantalla de
+    // ingreso los muestra, y ahí todavía no hay sesión. No hay nada de nadie
+    // acá: son totales del catálogo, los mismos que se publicitan.
+    match /catalogo_meta/precios {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Colección: catalogo_meta (estructura del catálogo: categorías,
     // subcategorías y marcas; la genera el pipeline de carga, no la app)
     match /catalogo_meta/{document=**} {
@@ -42,7 +51,9 @@ service cloud.firestore {
     }
 
     // Colección: observaciones_precios
-    // Estructura: { ean, descripcionCruda, comercio, precio, fecha, fuente, uid }.
+    // Estructura: { ean, descripcionCruda, comercio, cadena, precio, fecha, fuente, uid }.
+    // `cadena` es el id del map `precios` (vea, carrefour...) y `comercio` su
+    // nombre legible: el Modo Súper pregunta en qué súper está el usuario.
     // La lectura es abierta a usuarios autenticados: el historial de precios de
     // un producto se construye con las observaciones de TODOS los usuarios.
     // Escribir/borrar solo lo propio (validado contra el campo uid).

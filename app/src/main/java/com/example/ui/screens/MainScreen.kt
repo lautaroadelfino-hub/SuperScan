@@ -14,12 +14,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +32,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.EanLookupResult
@@ -58,9 +62,26 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val estaOnline = rememberEstaOnline()
+    val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableStateOf(0) }
     var showBottomSheet by remember { mutableStateOf(false) }
     var productToAddToList by remember { mutableStateOf<com.example.data.ProductModel?>(null) }
+
+    // Los errores de acción viven acá: un Snackbar que no tapa la app ni obliga
+    // a tocar "OK". El AlertDialog quedó solo para lo destructivo (fix 1).
+    LaunchedEffect(snackbarHostState) {
+        viewModel.mensajes.collect { mensaje ->
+            val resultado = snackbarHostState.showSnackbar(
+                message = mensaje.texto,
+                actionLabel = mensaje.accion,
+                duration = if (mensaje.duracionLarga) SnackbarDuration.Long else SnackbarDuration.Short
+            )
+            if (resultado == SnackbarResult.ActionPerformed) {
+                mensaje.onAccion?.invoke()
+            }
+        }
+    }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
         if (bitmap != null) {
@@ -74,7 +95,7 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
             if (bitmap != null) {
                 viewModel.processImage(bitmap)
             } else {
-                viewModel.showError("No se pudo leer la imagen.")
+                viewModel.showError("No pudimos abrir esa imagen. Probá con otra.")
             }
         }
     }
@@ -92,9 +113,9 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                 when (val res = viewModel.lookupBarcode(result.contents)) {
                     is EanLookupResult.Found -> catalogViewModel.abrirDetalle(res.producto)
                     is EanLookupResult.NotFound ->
-                        viewModel.showError("El producto no está en el catálogo todavía. Podés cargarlo escaneándolo desde el Modo Súper.")
-                    is EanLookupResult.InvalidEan -> viewModel.showError("Código de barras inválido: ${res.raw}")
-                    is EanLookupResult.Offline -> viewModel.showError("Sin conexión: el producto no está en la caché local.")
+                        viewModel.showError("Ese producto no está en el catálogo todavía. Podés darlo de alta desde el Modo Súper.")
+                    is EanLookupResult.InvalidEan -> viewModel.showError("Ese código de barras no es válido: ${res.raw}")
+                    is EanLookupResult.Offline -> viewModel.showError("Sin conexión: ese producto no está en los datos guardados.")
                     is EanLookupResult.Failure -> viewModel.showError(res.mensaje)
                 }
             }
@@ -112,97 +133,103 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
         } else {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
+                snackbarHost = {
+                    SnackbarHost(snackbarHostState) { data ->
+                        // Fondo tinta, texto papel, acción en amarillo y en Bold
+                        Snackbar(
+                            shape = RoundedCornerShape(12.dp),
+                            containerColor = MaterialTheme.colorScheme.onSurface,
+                            contentColor = MaterialTheme.colorScheme.background,
+                            action = data.visuals.actionLabel?.let { etiqueta ->
+                                {
+                                    TextButton(onClick = { data.performAction() }) {
+                                        Text(
+                                            etiqueta,
+                                            color = MaterialTheme.colorScheme.tertiary,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
+                            Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                },
                 topBar = {
-                    TopAppBar(
-                        title = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "góndola",
-                                    fontWeight = FontWeight.Black,
-                                    letterSpacing = (-0.5).sp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(999.dp)
+                    Column {
+                        TopAppBar(
+                            title = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    GondolaLockup()
+                                    // De cuándo son los precios: al lado de la
+                                    // ciudad, porque las dos cosas acotan lo
+                                    // que el usuario está mirando.
+                                    val fecha = viewModel.estadoPrecios
+                                        ?.fecha_datos
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { Formato.fechaCorta(it) }
+                                    if (fecha != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "precios al $fecha",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background
+                            )
+                        )
+                        // Sin señal la app sigue andando con los precios que ya
+                        // tiene guardados; lo que no se puede es callarlo.
+                        AnimatedVisibility(
+                            visible = !estaOnline,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Icon(
+                                        Icons.Default.CloudOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.background,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        "Tandil",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
+                                        "Sin conexión · usando precios guardados",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.background
                                     )
                                 }
                             }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background
-                        )
-                    )
-                },
-                bottomBar = {
-                    // Barra con el botón de escaneo ENCASTRADO en el centro,
-                    // mitad adentro mitad afuera, como en el diseño de marca
-                    Box {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            modifier = Modifier.padding(top = 26.dp)
-                        ) {
-                            NavigationBarItem(
-                                selected = selectedTab == 0,
-                                onClick = { selectedTab = 0 },
-                                icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
-                                label = { Text("Listas") }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 1,
-                                onClick = { selectedTab = 1 },
-                                icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
-                                label = { Text("Catálogo") }
-                            )
-                            // Hueco para el botón central de escaneo
-                            Spacer(modifier = Modifier.weight(0.8f))
-                            NavigationBarItem(
-                                selected = selectedTab == 2,
-                                onClick = { selectedTab = 2 },
-                                icon = { Icon(Icons.Default.History, contentDescription = "Mis compras") },
-                                label = { Text("Compras") }
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 3,
-                                onClick = { selectedTab = 3 },
-                                icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
-                                label = { Text("Perfil") }
-                            )
-                        }
-                        // Botón contextual: dice exactamente lo que hace acá
-                        if (selectedTab != 3) {
-                            FloatingActionButton(
-                                onClick = {
-                                    if (selectedTab == 1) {
-                                        productScanLauncher.launch(ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) })
-                                    } else {
-                                        showBottomSheet = true
-                                    }
-                                },
-                                shape = CircleShape,
-                                containerColor = MaterialTheme.colorScheme.tertiary,
-                                contentColor = MaterialTheme.colorScheme.onTertiary,
-                                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .size(60.dp)
-                            ) {
-                                Icon(
-                                    if (selectedTab == 1) Icons.Default.QrCodeScanner else Icons.Default.ReceiptLong,
-                                    contentDescription = if (selectedTab == 1) "Escanear producto" else "Cargar ticket",
-                                    modifier = Modifier.size(28.dp)
-                                )
-                            }
                         }
                     }
+                },
+                bottomBar = {
+                    BarraGondola(
+                        selectedTab = selectedTab,
+                        onSelectTab = { selectedTab = it },
+                        onAccionCentral = {
+                            if (selectedTab == 1) {
+                                productScanLauncher.launch(
+                                    ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) }
+                                )
+                            } else {
+                                showBottomSheet = true
+                            }
+                        }
+                    )
                 }
             ) { padding ->
                 Box(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -216,7 +243,20 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     activeListId = activeListId,
                                     gastoDelMes = gastoDelMes,
                                     aportes = misAportes,
-                                    onBuscar = { selectedTab = 1 },
+                                    estaOnline = estaOnline,
+                                    cargando = !viewModel.listasCargadas,
+                                    errorCarga = viewModel.errorCargaListas,
+                                    onReintentar = { viewModel.reintentarListas() },
+                                    onVerGastos = { selectedTab = 2 },
+                                    onVerPerfil = { selectedTab = 3 },
+                                    onAbrirProducto = { producto ->
+                                        catalogViewModel.abrirDetalle(producto)
+                                        selectedTab = 1
+                                    },
+                                    onBuscarEnCatalogo = { termino ->
+                                        catalogViewModel.buscarDesdeLaPortada(termino)
+                                        selectedTab = 1
+                                    },
                                     onListSelected = { viewModel.selectShoppingList(it) },
                                     onItemToggled = { itemId, isChecked -> viewModel.toggleShoppingItem(itemId, isChecked) },
                                     onItemDeleted = { itemId -> viewModel.removeShoppingItem(itemId) },
@@ -228,58 +268,48 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                 CatalogScreen(
                                     catalogViewModel = catalogViewModel,
                                     hasCurrentList = shoppingLists.isNotEmpty(),
-                                    onAddToList = { product -> productToAddToList = product }
+                                    onAddToList = { product -> productToAddToList = product },
+                                    onMensaje = { texto -> viewModel.showError(texto) }
                                 )
                             }
                             2 -> {
                                 MisComprasScreen(
                                     receipts = receipts,
                                     budget = budget,
+                                    cargando = !viewModel.ticketsCargados,
+                                    errorCarga = viewModel.errorCargaTickets,
+                                    onReintentar = { viewModel.reintentarTickets() },
                                     onUpdateBudget = { viewModel.updateBudget(it) },
                                     onDeleteReceipt = { viewModel.deleteReceipt(it) }
                                 )
                             }
                             3 -> {
-                                ProfileScreen(onLogout = onLogout)
+                                ProfileScreen(
+                                    onLogout = onLogout,
+                                    onMensaje = { texto -> viewModel.showError(texto) }
+                                )
                             }
                         }
                     }
 
+                    // Lo que está pasando con el ticket, sin tapar la app (fix 2)
+                    PildoraEscaneo(
+                        estado = viewModel.estadoEscaneo,
+                        procesoEnCurso = viewModel.procesoEnCurso,
+                        onRevisar = { viewModel.abrirTicketLeido() },
+                        onDescartar = { viewModel.descartarEscaneo() },
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp)
+                    )
+
                     if (productToAddToList != null) {
                         val product = productToAddToList!!
-                        var quantity by remember { mutableStateOf("1") }
-                        AlertDialog(
-                            onDismissRequest = { productToAddToList = null },
-                            title = { Text("Añadir a lista") },
-                            text = {
-                                Column {
-                                    Text("¿A qué lista quieres añadir \"${product.descripcion}\"?")
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    OutlinedTextField(
-                                        value = quantity,
-                                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) quantity = it },
-                                        label = { Text("Cantidad") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text("Selecciona una lista:", style = MaterialTheme.typography.labelMedium)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    shoppingLists.forEach { list ->
-                                        ListItem(
-                                            headlineContent = { Text(list.name) },
-                                            supportingContent = { Text("${if(list.members.size > 1) "Colaborativa" else "Personal"} (${list.members.size} miembros)") },
-                                            modifier = Modifier.clickable {
-                                                val qty = quantity.toDoubleOrNull() ?: 1.0
-                                                viewModel.addProductToShoppingList(list.id, product, qty)
-                                                productToAddToList = null
-                                            }
-                                        )
-                                    }
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(onClick = { productToAddToList = null }) { Text("Cancelar") }
+                        ElegirListaSheet(
+                            producto = product,
+                            listas = shoppingLists,
+                            onDismiss = { productToAddToList = null },
+                            onElegir = { lista, cantidad ->
+                                viewModel.addProductToShoppingList(lista.id, product, cantidad, lista.name)
+                                productToAddToList = null
                             }
                         )
                     }
@@ -318,29 +348,226 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                 }
             }
         }
+    }
+}
 
-        if (viewModel.isProcessing) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.7f)),
-                contentAlignment = Alignment.Center
+// Barra de 4 zonas con el botón de escaneo encastrado en el centro, mitad
+// adentro y mitad afuera. El micro-label dice qué hace acá y ahora: en Perfil
+// no hay nada que escanear, así que el botón no está.
+@Composable
+private fun BarraGondola(
+    selectedTab: Int,
+    onSelectTab: (Int) -> Unit,
+    onAccionCentral: () -> Unit
+) {
+    val esCatalogo = selectedTab == 1
+    Box {
+        NavigationBar(
+            containerColor = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.padding(top = 28.dp)
+        ) {
+            NavigationBarItem(
+                selected = selectedTab == 0,
+                onClick = { onSelectTab(0) },
+                icon = { Icon(Icons.Default.ShoppingCart, contentDescription = "Listas") },
+                label = { Text("Listas") }
+            )
+            NavigationBarItem(
+                selected = selectedTab == 1,
+                onClick = { onSelectTab(1) },
+                icon = { Icon(Icons.Default.Search, contentDescription = "Catálogo") },
+                label = { Text("Catálogo") }
+            )
+            // Hueco para el botón central de escaneo
+            Spacer(modifier = Modifier.weight(0.9f))
+            NavigationBarItem(
+                selected = selectedTab == 2,
+                onClick = { onSelectTab(2) },
+                icon = { Icon(Icons.Default.History, contentDescription = "Mis compras") },
+                label = { Text("Compras") }
+            )
+            NavigationBarItem(
+                selected = selectedTab == 3,
+                onClick = { onSelectTab(3) },
+                icon = { Icon(Icons.Default.Person, contentDescription = "Perfil") },
+                label = { Text("Perfil") }
+            )
+        }
+        if (selectedTab != 3) {
+            // El micro-label va ADENTRO del círculo, debajo del ícono: el botón
+            // dice lo que hace sin depender de una palabra suelta flotando sobre
+            // la barra.
+            FloatingActionButton(
+                onClick = onAccionCentral,
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp),
+                modifier = Modifier.align(Alignment.TopCenter).size(64.dp)
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(viewModel.loadingMessage)
+                    Icon(
+                        if (esCatalogo) Icons.Default.QrCodeScanner else Icons.Default.ReceiptLong,
+                        contentDescription = if (esCatalogo) "Escanear producto" else "Cargar ticket",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        if (esCatalogo) "ESCANEAR" else "TICKET",
+                        fontSize = 8.sp,
+                        lineHeight = 9.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp,
+                        modifier = Modifier.padding(top = 1.dp)
+                    )
                 }
             }
         }
+    }
+}
 
-        if (viewModel.errorMessage != null) {
-            AlertDialog(
-                onDismissRequest = { viewModel.clearError() },
-                title = { Text("Aviso") },
-                text = { Text(viewModel.errorMessage!!) },
-                confirmButton = { TextButton(onClick = { viewModel.clearError() }) { Text("OK") } }
+// La píldora que cuenta qué pasa con el ticket mientras la app sigue viva.
+// Leyendo → spinner; leído → botón "Revisar" (nadie pierde un ticket por
+// haberse ido a otra solapa).
+@Composable
+private fun PildoraEscaneo(
+    estado: EstadoEscaneo,
+    procesoEnCurso: String?,
+    onRevisar: () -> Unit,
+    onDescartar: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val visible = estado !is EstadoEscaneo.Inactivo || procesoEnCurso != null
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInVertically { it } + fadeIn(),
+        exit = slideOutVertically { it } + fadeOut(),
+        modifier = modifier
+    ) {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 6.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                when {
+                    estado is EstadoEscaneo.Listo -> {
+                        Icon(
+                            Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        val n = estado.receipt.items.size
+                        Text(
+                            "Ticket leído · $n ${if (n == 1) "ítem" else "ítems"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = onRevisar,
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                        ) {
+                            Text("Revisar", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                        }
+                        IconButton(onClick = onDescartar, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Descartar",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                    else -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            procesoEnCurso ?: "Leyendo el ticket… podés seguir usando la app",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Agregar a una lista no es destructivo: hoja, no diálogo.
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ElegirListaSheet(
+    producto: com.example.data.ProductModel,
+    listas: List<com.example.data.SharedListModel>,
+    onDismiss: () -> Unit,
+    onElegir: (com.example.data.SharedListModel, Double) -> Unit
+) {
+    var cantidad by remember { mutableStateOf("1") }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 32.dp)) {
+            Text(
+                "Agregar a una lista",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
             )
+            Text(
+                producto.descripcion,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+            )
+            OutlinedTextField(
+                value = cantidad,
+                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) cantidad = it },
+                label = { Text("Cantidad") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            if (listas.isEmpty()) {
+                Text(
+                    "Todavía no tenés ninguna lista. Creá una desde la solapa Listas.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            listas.forEach { lista ->
+                ListItem(
+                    headlineContent = { Text(lista.name) },
+                    supportingContent = {
+                        Text(
+                            if (lista.members.size > 1) "Colaborativa · ${lista.members.size}" else "Personal"
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            Icons.AutoMirrored.Filled.List,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        onElegir(lista, cantidad.toDoubleOrNull() ?: 1.0)
+                    }
+                )
+            }
         }
     }
 }
@@ -348,27 +575,44 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
 @Composable
 fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
+    var confirmarBorrado by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(16.dp),
+        onClick = { expanded = !expanded }
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text(receipt.storeName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(receipt.date, style = MaterialTheme.typography.bodySmall)
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.ReceiptLong,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
-                Text(Formato.precio(receipt.totalAmount), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Ocultar Detalles" else "Ver Detalles") }
-                IconButton(onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDelete(receipt.id)
-                }) { Icon(Icons.Default.Delete, contentDescription = "Eliminar", tint = MaterialTheme.colorScheme.error) }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(receipt.storeName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${receipt.date} · ${receipt.items.size} ítems",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    Formato.precio(receipt.totalAmount),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
             AnimatedVisibility(
                 visible = expanded,
@@ -376,7 +620,7 @@ fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Mo
                 exit = shrinkVertically() + fadeOut()
             ) {
                 Column {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     HorizontalDivider()
                     Spacer(modifier = Modifier.height(8.dp))
                     receipt.items.forEach { item ->
@@ -384,12 +628,96 @@ fun ReceiptCard(receipt: ReceiptEntity, onDelete: (String) -> Unit, modifier: Mo
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.productName, style = MaterialTheme.typography.bodyMedium)
                                 val unitPrice = if (item.quantity > 0.0) item.totalPrice / item.quantity else item.totalPrice
-                                Text("${item.quantity}x a ${Formato.precio(unitPrice)}", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    "${Formato.cantidad(item.quantity)} × ${Formato.precio(unitPrice)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                             Text(Formato.precio(item.totalPrice), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         }
                     }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    TextButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            confirmarBorrado = true
+                        }
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Eliminar ticket", color = MaterialTheme.colorScheme.error)
+                    }
                 }
+            }
+        }
+    }
+
+    // Destructivo: acá sí va un diálogo, y dice exactamente qué se pierde.
+    if (confirmarBorrado) {
+        val n = receipt.items.size
+        AlertDialog(
+            onDismissRequest = { confirmarBorrado = false },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("¿Eliminar este ticket?") },
+            text = {
+                Text(
+                    "Se borra de tu historial y dejan de contar sus $n ${if (n == 1) "precio aportado" else "precios aportados"} " +
+                        "a la comunidad."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmarBorrado = false
+                        onDelete(receipt.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmarBorrado = false }) { Text("Cancelar") }
+            }
+        )
+    }
+}
+
+// Tarjeta de error de CARGA: no es un Snackbar (el dato no está y hay que
+// reintentar), no es un diálogo (no bloquea). Dice la causa y ofrece la salida.
+@Composable
+fun ErrorDeCarga(
+    titulo: String,
+    causa: String,
+    onReintentar: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                Icons.Default.CloudOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(titulo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                causa,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(onClick = onReintentar, shape = RoundedCornerShape(999.dp)) {
+                Text("Reintentar")
             }
         }
     }
