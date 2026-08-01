@@ -4,7 +4,9 @@ Estado al 1 de agosto de 2026.
 
 - **App en Play Console:** creada · `ar.com.gondola.app` · ID interno `4973399769599238430`
 - **Cuenta:** Fuerte Code (personal) — **sin acceso a producción todavía**
-- **AAB firmado:** `C:\Users\Victoria\Desktop\Gondola-v1-release.aab` (30 MB, versionCode 1)
+- **AAB a subir:** `C:\Users\Victoria\Desktop\Gondola-v2-release.aab`
+  (30 MB · versionCode **2** · versionName 1.0.1 · `jar verified`)
+  El `Gondola-v1-release.aab` quedó obsoleto: le faltaban los arreglos de cámara.
 - **Clave de subida:** `my-upload-key.jks` en la raíz del repo · alias `upload`.
   El archivo está en `.gitignore` y no se commitea. **La contraseña NO va acá ni en
   ningún archivo del repo**: guardala en tu gestor de contraseñas. El build la toma
@@ -25,14 +27,93 @@ Estado al 1 de agosto de 2026.
 | ✅ | Ficha: nombre, descripción breve y descripción completa guardadas como borrador |
 | ✅ | Configuración de la tienda: categoría Compras, correo de contacto, sitio web |
 
-## Lo que falta — y por qué lo tenés que hacer vos
+---
 
-Yo no puedo subir archivos al navegador desde esta sesión (el tooling solo deja
-subir archivos que compartiste explícitamente con la sesión), y no firmo
-declaraciones legales en tu nombre.
+# PASOS PARA VOS — en este orden
 
-### 1. Subir los gráficos de la ficha
-En **Aumentar usuarios → Fichas de Play Store → Ficha predeterminada**:
+Yo no puedo subir archivos al navegador desde esta sesión (probado: ni con acceso
+a la carpeta concedido; el permiso habilita mis herramientas de archivos, no el
+`input file` del navegador). Y no firmo declaraciones legales en tu nombre.
+Todo lo demás ya está hecho.
+
+Calculá 20-30 minutos. Cuando termines cada paso avisame y sigo yo con lo que
+venga después.
+
+### Paso 1 · Sacar 4 capturas de pantalla
+Con la app instalada en el Samsung. Play exige mínimo 2; con 4 la ficha queda
+decente. Sugerencia de orden:
+
+1. Catálogo con el comparador de un producto abierto ← es el gancho
+2. Inicio con el hero "conviene ir a…"
+3. Estadísticas del mes
+4. Una lista compartida
+
+Botón de encendido + bajar volumen. Después pasalas a la compu.
+
+### Paso 2 · Completar la ficha
+**Aumentar usuarios → Presencia en Google Play Store → Fichas de Play Store**
+
+Los textos ya están cargados. Falta arrastrar:
+
+| Recurso | Archivo |
+|---|---|
+| Ícono 512×512 | `marca-visual-app/assets/gondola-icon-512.png` |
+| Gráfico de funciones 1024×500 | `marca-visual-app/assets/play-feature-graphic-1024x500.png` |
+| Capturas de teléfono | las del paso 1 |
+
+### Paso 3 · Crear la cuenta de demo
+La app pide login, así que el revisor de Google necesita entrar. Creá una cuenta
+normal desde la app (por ejemplo `demo.gondola@gmail.com`), cargale un par de
+tickets y una lista para que se vea algo, y anotá usuario y contraseña.
+
+### Paso 4 · Contenido de la aplicación
+**Probar y publicar → Contenido de la aplicación**. Son declaraciones tuyas:
+
+- **Política de privacidad** → `https://compras-super-18da9.web.app/privacidad`
+- **Acceso a la app** → "Se requiere acceso" + las credenciales del paso 3
+- **Anuncios** → No contiene anuncios
+- **Clasificación de contenido** → cuestionario, todo negativo
+- **Público objetivo** → 18 y más
+- **Seguridad de los datos** → usá la tabla del final de este archivo
+- **Eliminación de datos** → sí, desde Perfil → Eliminar cuenta
+
+### Paso 5 · Subir el bundle a prueba cerrada
+**Probar y publicar → Pruebas → Prueba cerrada → Crear versión**
+
+Arrastrá `C:\Users\Victoria\Desktop\Gondola-v2-release.aab`.
+
+Play te va a ofrecer **Play App Signing**: aceptalo. Es lo estándar y hace que la
+clave de subida sea recuperable si la perdés.
+
+Notas de la versión, para copiar y pegar:
+
+```
+<es-419>
+Primera versión de prueba.
+
+Comparás precios de más de 25.000 productos de los súper de Tandil, escaneás
+códigos de barras en la góndola y armás listas compartidas.
+
+El lector de tickets está temporalmente fuera de servicio mientras cambiamos de
+proveedor. El resto de la app funciona con normalidad.
+</es-419>
+```
+
+### Paso 6 · Cargar los 12 testers
+En la pestaña **Testers** de la prueba cerrada. Necesitás 12 cuentas de Google de
+gente que mantenga la app instalada 14 días seguidos. **El reloj arranca cuando
+publicás la versión, no cuando la creás.**
+
+### Paso 7 · Avisame
+Con el bundle subido yo puedo:
+- Sacar de **Integridad de la aplicación** el SHA-256 del certificado de Play y
+  registrarlo en App Check (sin eso el lector de tickets no va a andar ni cuando
+  tengamos proveedor nuevo)
+- Seguir el estado de la revisión y avisarte si Play rechaza algo
+
+---
+
+## Referencia de recursos gráficos
 
 | Recurso | Archivo | Estado |
 |---|---|---|
