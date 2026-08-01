@@ -18,8 +18,8 @@ android {
     minSdk = 24
     targetSdk = 36
     // Play rechaza un bundle con un versionCode ya usado: cada subida lo sube.
-    versionCode = 2
-    versionName = "1.0.1"
+    versionCode = 3
+    versionName = "1.0.2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
