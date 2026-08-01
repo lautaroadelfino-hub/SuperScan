@@ -1,0 +1,51 @@
+name = "gondola-lector"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# Sin build step: JS plano, cero dependencias. `wrangler deploy` y listo.
+
+[vars]
+# --- Identidad del proyecto de Firebase (NO son secretos: el project id ya
+# viaja dentro del APK en google-services.json) ---
+FIREBASE_PROJECT_ID = "compras-super-18da9"
+FIREBASE_PROJECT_NUMBER = "514170932765"
+
+# --- Selección de proveedor. ESTO es lo que se cambia cuando un tier gratuito
+# se cae: se edita acá, `wrangler deploy`, y la app ni se entera. Es una lista
+# ordenada: se prueba el primero, y si contesta 429/5xx/timeout se pasa al
+# siguiente. Los que no tengan su secreto cargado se saltean solos. ---
+CADENA = "workers-ai,groq"
+
+# Modelo por proveedor. Se sobrescribe sin tocar código cuando deprecan uno.
+MODELO_WORKERS_AI = "@cf/google/gemma-4-26b-a4b-it"
+MODELO_GROQ = "qwen/qwen3.6-27b"
+MODELO_MISTRAL = "mistral-small-latest"
+MODELO_GOOGLE_AI = "gemini-3.5-flash"
+
+# Cuenta de Cloudflare para la REST API de Workers AI (no es secreto).
+CF_ACCOUNT_ID = "pone-aca-tu-account-id"
+
+# --- Frenos de cuota (el tier gratis es único y compartido por todos) ---
+LIMITE_DIARIO_USUARIO = "25"
+LIMITE_DIARIO_GLOBAL = "400"
+MAX_BASE64_BYTES = "1600000"   # ~1,2 MB de JPEG ya codificado
+TIMEOUT_MS = "45000"
+
+# --- Interruptor de mantenimiento. "no" hace que todos los escaneos devuelvan
+# MANTENIMIENTO con un mensaje decente, sin tocar la app. ---
+HABILITADO = "si"
+
+# Contador de cuota por usuario y global. Crear con:
+#   wrangler kv namespace create CUOTAS
+# y pegar el id acá. Si no existe el binding, el proxy anda igual (sin límites).
+# [[kv_namespaces]]
+# binding = "CUOTAS"
+# id = "pone-aca-el-id"
+
+# Alternativa al token REST de Workers AI: el binding, que no necesita NINGUNA
+# credencial. Ver el comentario en src/proveedores.js.
+# [ai]
+# binding = "AI"
+
+[observability]
+enabled = true

@@ -263,7 +263,29 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                 // el propio teléfono, no depende de ningún servicio
                                 // externo. Nunca se apaga.
                                 productScanLauncher.launch(
-                                    ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) }
+                                    ScanOptions().apply {
+                                        // Solo códigos de retail, los mismos que
+                                        // el Modo Súper. Con ALL_CODE_TYPES leía
+                                        // también QR y Code128: devolvía algo que
+                                        // no es un EAN y la búsqueda fallaba sin
+                                        // que se entendiera por qué.
+                                        setDesiredBarcodeFormats(
+                                            ScanOptions.EAN_13,
+                                            ScanOptions.EAN_8,
+                                            ScanOptions.UPC_A,
+                                            ScanOptions.UPC_E
+                                        )
+                                        // Vertical, como el Modo Súper: no hay
+                                        // motivo para hacer girar el teléfono.
+                                        setCaptureActivity(CaptureActivityVertical::class.java)
+                                        // La librería, si "bloquea" la orientación,
+                                        // llama a setRequestedOrientation por su
+                                        // cuenta y pisa la del manifest. En false
+                                        // manda lo que declaramos nosotros.
+                                        setOrientationLocked(false)
+                                        setBeepEnabled(false)
+                                        setPrompt("Apuntá al código de barras del producto")
+                                    }
                                 )
                             } else if (!viewModel.estadoEscaneoTicket.habilitado) {
                                 // Mejor avisar acá que hacerlo sacar la foto, esperar

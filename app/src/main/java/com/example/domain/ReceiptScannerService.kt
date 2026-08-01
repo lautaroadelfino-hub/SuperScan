@@ -96,6 +96,14 @@ class ReceiptScannerService {
      */
     suspend fun analyzeReceiptImage(bitmap: Bitmap): Result<ExtractedReceipt> = withContext(Dispatchers.IO) {
         try {
+            // Paso de medición: corremos el OCR on-device y volcamos el texto al
+            // log para poder evaluar si el enfoque híbrido (ML Kit en el teléfono
+            // + un modelo de solo texto) da lo bastante bien como para dejar de
+            // depender de un modelo con visión y su cuota.
+            // Todavía NO alimenta la extracción: lo que se manda sigue siendo la
+            // imagen. Cuando el eval lo respalde, se invierte.
+            volcarOcrParaEvaluacion(bitmap)
+
             val salida = java.io.ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, salida)
             val jpegBytes = salida.toByteArray()
@@ -133,6 +141,24 @@ class ReceiptScannerService {
             Log.e(TAG, "Falló la lectura del ticket: ${e.message}", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * Vuelca al log el texto que ML Kit saca del ticket, partido en trozos
+     * porque logcat corta las líneas largas. Es temporal: sirve para medir la
+     * calidad del OCR on-device contra tickets reales antes de decidir la
+     * arquitectura del lector. No afecta el resultado que ve el usuario.
+     */
+    private suspend fun volcarOcrParaEvaluacion(bitmap: Bitmap) {
+        TicketOcr.extraerTexto(bitmap)
+            .onSuccess { texto ->
+                Log.i(TAG, "===== OCR ON-DEVICE: INICIO (${texto.length} caracteres) =====")
+                texto.lineSequence().forEachIndexed { i, linea ->
+                    Log.i(TAG, "OCR[${i.toString().padStart(3, '0')}] $linea")
+                }
+                Log.i(TAG, "===== OCR ON-DEVICE: FIN =====")
+            }
+            .onFailure { Log.w(TAG, "El OCR on-device no pudo leer el ticket", it) }
     }
 
     private fun parseResponse(jsonText: String?): ExtractedReceipt? {

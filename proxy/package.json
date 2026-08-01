@@ -1,0 +1,15 @@
+{
+  "name": "gondola-lector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Proxy de lectura de tickets de Gondola. La API key del proveedor de IA vive aca, nunca en el APK.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "logs": "wrangler tail --format pretty"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "type": "module"
+}

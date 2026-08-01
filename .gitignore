@@ -49,6 +49,15 @@ subida_firebase/sim_nombres.txt
 .claude/skills/kotlin-*/
 .claude/skills/using-chrisbanes-skills/
 
+# Proxy del lector de tickets (Cloudflare Worker).
+# .dev.vars tiene las API keys de los proveedores de IA: NUNCA se commitea.
+# En produccion los secretos van con `wrangler secret put`, cifrados en
+# Cloudflare, y no existen como archivo en ningun lado.
+proxy/node_modules/
+proxy/.dev.vars
+proxy/.wrangler/
+proxy/package-lock.json
+
 # Caches de los scripts del pipeline (se regeneran solos)
 subida_firebase/categorias_altas.json
 __pycache__/

@@ -1,0 +1,12 @@
+# Copiar a `.dev.vars` (gitignored) SOLO para `wrangler dev` local.
+# En produccion NO se usa este archivo: los secretos se cargan con
+#   wrangler secret put NOMBRE
+# y quedan cifrados en Cloudflare. Nunca en el repo, nunca en el APK.
+
+# Token de Cloudflare con permiso "Workers AI: Read" (proveedor workers-ai).
+CF_AI_TOKEN=
+
+# Solo si activas esos proveedores en CADENA.
+GROQ_API_KEY=
+MISTRAL_API_KEY=
+GOOGLE_AI_API_KEY=

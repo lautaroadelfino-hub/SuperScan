@@ -138,4 +138,7 @@ dependencies {
 dependencies {
   implementation("com.journeyapps:zxing-android-embedded:4.3.0")
   implementation(libs.mlkit.barcode)
+  // OCR del ticket en el propio teléfono: gratis, sin cuota y sin que la foto
+  // salga del dispositivo. Ver TicketOcr.
+  implementation(libs.mlkit.text.recognition)
 }
