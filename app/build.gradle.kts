@@ -17,8 +17,9 @@ android {
     applicationId = "ar.com.gondola.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // Play rechaza un bundle con un versionCode ya usado: cada subida lo sube.
+    versionCode = 2
+    versionName = "1.0.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

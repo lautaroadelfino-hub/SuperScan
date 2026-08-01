@@ -6,6 +6,9 @@
     <!-- Para avisar "sin conexión · usando precios guardados" en la barra -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Confirmación háptica al escanear un código (ScannerHelper y Modo Súper).
+         Sin declararlo, Vibrator.vibrate tira SecurityException y voltea la app. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".GondolaApp"

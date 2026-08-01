@@ -325,6 +325,24 @@ data class EstadoPrecios(
     fun tieneDatos(): Boolean = productos_con_precio > 0
 }
 
+// catalogo_meta/escaneo: interruptor remoto del lector de tickets. Existe porque
+// el lector depende de un proveedor de IA externo, y cuando ese proveedor se cae
+// o se queda sin cuota no tiene sentido que el usuario saque una foto, espere y
+// recién ahí se coma un error. Se cambia desde la consola de Firebase, sin
+// publicar una versión nueva en Play.
+//
+// `habilitado = true` por defecto A PROPÓSITO: si el documento no existe o
+// Firestore no responde, el lector sigue andando. Un problema de red no tiene
+// por qué apagar una función que funciona.
+data class EstadoEscaneoTicket(
+    val habilitado: Boolean = true,
+    val mensaje: String = ""
+) {
+    /** Qué contarle al usuario cuando está apagado, con un texto de reserva. */
+    fun mensajeODefault(): String =
+        mensaje.ifBlank { "El lector de tickets está en mantenimiento. Volvé a probar en unos días." }
+}
+
 enum class OrdenCatalogo { ALFABETICO, PRECIO_ASC, PRECIO_DESC }
 
 // Página de productos dentro de una subcategoría, con filtro de marca opcional

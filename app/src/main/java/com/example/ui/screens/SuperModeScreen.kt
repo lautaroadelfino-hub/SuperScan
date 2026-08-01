@@ -73,6 +73,32 @@ fun SuperModeScreen(
 
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
+    // La cámara y el analizador se crean acá y no adentro del `factory` del
+    // AndroidView, para poder soltarlos al salir. Antes se creaba un executor
+    // nuevo en cada entrada al Modo Súper y no se apagaba ninguno: la cámara
+    // seguía prendida (con el punto verde de Android 12+) y el escáner de código
+    // del Catálogo, que usa ZXing, se la encontraba ocupada y fallaba.
+    val analisisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scanner = remember {
+        BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(
+                    Barcode.FORMAT_EAN_13,
+                    Barcode.FORMAT_EAN_8,
+                    Barcode.FORMAT_UPC_A,
+                    Barcode.FORMAT_UPC_E
+                )
+                .build()
+        )
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { ProcessCameraProvider.getInstance(context).get().unbindAll() }
+            analisisExecutor.shutdown()
+            scanner.close()
+        }
+    }
+
     var scannedProduct by remember { mutableStateOf<ProductModel?>(null) }
     var scannedPrice by remember { mutableStateOf<DisplayPrice?>(null) }
     var scannedBarcode by remember { mutableStateOf<String?>(null) }
@@ -138,21 +164,11 @@ fun SuperModeScreen(
                             it.setSurfaceProvider(previewView.surfaceProvider)
                         }
 
-                        val options = BarcodeScannerOptions.Builder()
-                            .setBarcodeFormats(
-                                Barcode.FORMAT_EAN_13,
-                                Barcode.FORMAT_EAN_8,
-                                Barcode.FORMAT_UPC_A,
-                                Barcode.FORMAT_UPC_E
-                            )
-                            .build()
-                        val scanner = BarcodeScanning.getClient(options)
-
                         val imageAnalysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             .also { analysis ->
-                                analysis.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
+                                analysis.setAnalyzer(analisisExecutor) { imageProxy ->
                                     if (isProcessingBarcode) {
                                         imageProxy.close()
                                         return@setAnalyzer

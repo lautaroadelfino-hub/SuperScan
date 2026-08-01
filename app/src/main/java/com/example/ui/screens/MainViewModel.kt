@@ -189,6 +189,16 @@ class MainViewModel(
         return when {
             "unavailable" in texto || "network" in texto || "offline" in texto || "host" in texto ->
                 "Parece que estás sin conexión."
+            // Cuota del proveedor de IA agotada. Es un problema nuestro, no del
+            // usuario: no tiene sentido ofrecerle "reintentar" como si fuera a
+            // andar la próxima.
+            "resource_exhausted" in texto || "quota" in texto || "credits" in texto ||
+                "429" in texto || "exhausted" in texto ->
+                "El lector de tickets está sin servicio por ahora. No es culpa tuya: lo estamos resolviendo."
+            // App Check rechazó la llamada. Suele ser una build vieja o una app
+            // instalada desde fuera de Play.
+            "app check" in texto || "unauthenticated" in texto || "401" in texto ->
+                "No pudimos validar la app. Si la instalaste por fuera de Google Play, probá con la versión de la tienda."
             "permission" in texto ->
                 "Tu sesión no tiene permiso para ver esto. Probá cerrar sesión y volver a entrar."
             else -> "No pudimos traer los datos."
@@ -202,6 +212,13 @@ class MainViewModel(
     var estadoPrecios by mutableStateOf<com.example.data.EstadoPrecios?>(null)
         private set
 
+    /**
+     * Interruptor remoto del lector de tickets (catalogo_meta/escaneo). Arranca
+     * habilitado para que la UI no parpadee mientras se lee Firestore.
+     */
+    var estadoEscaneoTicket by mutableStateOf(com.example.data.EstadoEscaneoTicket())
+        private set
+
     init {
         // De cuándo son los precios que está viendo el usuario. Se lee una vez
         // y queda en la caché offline de Firestore.
@@ -213,6 +230,13 @@ class MainViewModel(
             } catch (e: Exception) {
                 null // sin dato no se muestra nada; nunca una fecha inventada
             }
+        }
+
+        // ¿El lector de tickets está operativo? Depende de un proveedor de IA
+        // externo, así que la respuesta puede cambiar sin que salga una versión
+        // nueva. getEstadoEscaneoTicket ya falla hacia "habilitado".
+        viewModelScope.launch {
+            estadoEscaneoTicket = firebaseRepository.getEstadoEscaneoTicket()
         }
 
         // Lista activa automática: el hero "conviene ir a…" de la portada

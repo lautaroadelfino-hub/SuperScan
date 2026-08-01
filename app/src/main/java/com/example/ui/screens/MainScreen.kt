@@ -2,12 +2,18 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import java.io.File
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.expandVertically
@@ -46,7 +52,7 @@ import kotlinx.coroutines.launch
 // botón de escaneo en el centro de la barra. El botón es CONTEXTUAL: en Listas
 // y Mis compras carga un ticket; en Catálogo escanea un producto. Nunca promete
 // dos cosas a la vez.
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onLogout: () -> Unit) {
     val receipts by viewModel.receipts.collectAsState()
@@ -83,9 +89,40 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
         }
     }
 
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap: Bitmap? ->
-        if (bitmap != null) {
-            viewModel.processImage(bitmap)
+    // TakePicture (y no TakePicturePreview): el contrato "Preview" devuelve la
+    // MINIATURA del extra "data", de unos 240x320. Con eso es imposible leer los
+    // renglones de un ticket. Este escribe la foto entera en un archivo nuestro.
+    var fotoTicketUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { exito: Boolean ->
+        val uri = fotoTicketUri
+        if (exito && uri != null) {
+            val bitmap = uriToBitmap(context, uri)
+            if (bitmap != null) viewModel.processImage(bitmap)
+            else viewModel.showError("No pudimos abrir la foto que sacaste. Probá de nuevo.")
+            // El archivo ya no hace falta: la foto del ticket no se guarda.
+            runCatching { context.contentResolver.delete(uri, null, null) }
+        }
+        fotoTicketUri = null
+    }
+
+    // El manifest declara CAMERA, así que lanzar ACTION_IMAGE_CAPTURE sin tenerlo
+    // concedido tira SecurityException y voltea la app. Hay que pedirlo acá: el
+    // único pedido en runtime que existía estaba en el Modo Súper, y a esta
+    // pantalla se llega sin pasar por ahí.
+    val permisoCamara = rememberPermissionState(android.Manifest.permission.CAMERA)
+    var esperandoPermisoCamara by remember { mutableStateOf(false) }
+
+    fun sacarFotoDelTicket() {
+        val archivo = File(context.cacheDir, "ticket_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", archivo)
+        fotoTicketUri = uri
+        cameraLauncher.launch(uri)
+    }
+
+    LaunchedEffect(esperandoPermisoCamara, permisoCamara.status.isGranted) {
+        if (esperandoPermisoCamara && permisoCamara.status.isGranted) {
+            esperandoPermisoCamara = false
+            sacarFotoDelTicket()
         }
     }
 
@@ -222,8 +259,20 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                         onSelectTab = { selectedTab = it },
                         onAccionCentral = {
                             if (selectedTab == 1) {
+                                // Escaneo de código de barras: es ML Kit corriendo en
+                                // el propio teléfono, no depende de ningún servicio
+                                // externo. Nunca se apaga.
                                 productScanLauncher.launch(
                                     ScanOptions().apply { setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES) }
+                                )
+                            } else if (!viewModel.estadoEscaneoTicket.habilitado) {
+                                // Mejor avisar acá que hacerlo sacar la foto, esperar
+                                // y recién entonces fallar.
+                                viewModel.mostrarMensaje(
+                                    MensajeUi(
+                                        texto = viewModel.estadoEscaneoTicket.mensajeODefault(),
+                                        duracionLarga = true
+                                    )
                                 )
                             } else {
                                 showBottomSheet = true
@@ -323,7 +372,14 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                     leadingContent = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
                                     modifier = Modifier.clickable {
                                         showBottomSheet = false
-                                        cameraLauncher.launch(null)
+                                        if (permisoCamara.status.isGranted) {
+                                            sacarFotoDelTicket()
+                                        } else {
+                                            // Si deniega, las otras dos opciones del
+                                            // sheet siguen andando sin permiso.
+                                            esperandoPermisoCamara = true
+                                            permisoCamara.launchPermissionRequest()
+                                        }
                                     }
                                 )
                                 ListItem(
@@ -723,17 +779,44 @@ fun ErrorDeCarga(
     }
 }
 
+// Un ticket a 2000 px de lado mayor se lee sin problemas. Más que eso solo suma
+// megabytes: una foto de 12 MP ocupa ~48 MB en memoria como ARGB_8888 y hace
+// reventar los celulares con poca RAM antes siquiera de llegar a mandarla.
+private const val LADO_MAXIMO_TICKET = 2000
+
+/** Potencia de 2 más chica que deja el lado mayor por debajo del máximo. */
+private fun muestreoPara(ladoMayor: Int): Int {
+    var muestreo = 1
+    while (ladoMayor / muestreo > LADO_MAXIMO_TICKET) muestreo *= 2
+    return muestreo
+}
+
 private fun uriToBitmap(context: Context, uri: Uri): Bitmap? {
     return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val source = ImageDecoder.createSource(context.contentResolver, uri)
-            ImageDecoder.decodeBitmap(source) { decoder, _, _ -> decoder.isMutableRequired = true }
+            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                decoder.isMutableRequired = true
+                // Se baja la resolución DURANTE la decodificación, no después:
+                // escalar a posteriori exige haber cargado la imagen entera, que
+                // es justamente lo que queremos evitar.
+                val lado = maxOf(info.size.width, info.size.height)
+                if (lado > LADO_MAXIMO_TICKET) decoder.setTargetSampleSize(muestreoPara(lado))
+            }
         } else {
-            @Suppress("DEPRECATION")
-            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+            val opcionesMedida = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, opcionesMedida)
+            }
+            val opciones = BitmapFactory.Options().apply {
+                inSampleSize = muestreoPara(maxOf(opcionesMedida.outWidth, opcionesMedida.outHeight))
+            }
+            context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, opciones)
+            }
         }
     } catch (e: Exception) {
-        e.printStackTrace()
+        android.util.Log.e("GondolaScanner", "No se pudo decodificar la imagen del ticket", e)
         null
     }
 }

@@ -336,6 +336,15 @@ class FirebaseRepository {
         db.collection("catalogo_meta").document("estructura").get().await()
             .toObject(CatalogoEstructura::class.java)
 
+    // catalogo_meta/escaneo: interruptor remoto del lector de tickets. Si el
+    // documento no está o la lectura falla, se asume habilitado: no queremos que
+    // un problema de red apague una función que anda.
+    suspend fun getEstadoEscaneoTicket(): EstadoEscaneoTicket =
+        runCatching {
+            db.collection("catalogo_meta").document("escaneo").get().await()
+                .toObject(EstadoEscaneoTicket::class.java)
+        }.getOrNull() ?: EstadoEscaneoTicket()
+
     // --- CONSULTA 6: productos de una subcategoría, paginados de a 20 ---
     // Índices compuestos requeridos en firestore.indexes.json:
     //   (categoria, subcategoria, descripcion) y (categoria, subcategoria, precio_min),

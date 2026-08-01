@@ -1,6 +1,7 @@
 package com.example.domain
 
 import android.graphics.Bitmap
+import android.util.Log
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.GenerativeBackend
@@ -34,6 +35,11 @@ data class ExtractedItem(
 class ReceiptScannerService {
 
     companion object {
+        // Un tag propio y buscable: `adb logcat -s GondolaScanner` alcanza para
+        // ver por qué falló una lectura. printStackTrace se pierde entre el ruido
+        // del sistema y no dice de dónde salió.
+        private const val TAG = "GondolaScanner"
+
         val PRESET_CATEGORIES = listOf(
             "Lácteos y Quesos", "Bebidas", "Limpieza y Hogar", "Panadería y Dulces",
             "Frutas y Verduras", "Carnicería y Pescadería", "Almacén y Comestibles",
@@ -80,38 +86,51 @@ class ReceiptScannerService {
         ${PRESET_CATEGORIES.joinToString(", ") { "\"$it\"" }}
     """.trimIndent()
 
+    /**
+     * Manda la foto como JPEG.
+     *
+     * Antes se envolvía el bitmap en un PdfDocument, que lo serializa SIN
+     * comprimir: una foto de 2000 px se iba a decenas de MB, cerca del límite de
+     * inlineData, y el modelo termina reescalando la página igual. Un JPEG al 85%
+     * de la misma foto pesa unos 200 KB y se lee igual de bien.
+     */
     suspend fun analyzeReceiptImage(bitmap: Bitmap): Result<ExtractedReceipt> = withContext(Dispatchers.IO) {
         try {
-            val pdfDocument = android.graphics.pdf.PdfDocument()
-            val pageInfo = android.graphics.pdf.PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, 1).create()
-            val page = pdfDocument.startPage(pageInfo)
-            page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-            pdfDocument.finishPage(page)
-            
-            val outputStream = java.io.ByteArrayOutputStream()
-            pdfDocument.writeTo(outputStream)
-            pdfDocument.close()
-            
-            val pdfBytes = outputStream.toByteArray()
-            analyzeReceiptPdf(pdfBytes)
+            val salida = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, salida)
+            val jpegBytes = salida.toByteArray()
+            Log.i(TAG, "Ticket ${bitmap.width}x${bitmap.height} -> ${jpegBytes.size / 1024} KB de JPEG")
+            analizar(jpegBytes, "image/jpeg")
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "No se pudo comprimir la foto del ticket", e)
             Result.failure(e)
         }
     }
 
-    suspend fun analyzeReceiptPdf(pdfBytes: ByteArray): Result<ExtractedReceipt> = withContext(Dispatchers.IO) {
+    suspend fun analyzeReceiptPdf(pdfBytes: ByteArray): Result<ExtractedReceipt> =
+        analizar(pdfBytes, "application/pdf")
+
+    /** El envío en sí. Lo comparten la foto (JPEG) y el PDF subido a mano. */
+    private suspend fun analizar(datos: ByteArray, mimeType: String): Result<ExtractedReceipt> = withContext(Dispatchers.IO) {
         try {
             val response = generativeModel.generateContent(
                 content {
-                    inlineData(pdfBytes, "application/pdf")
+                    inlineData(datos, mimeType)
                     text(prompt)
                 }
             )
             val result = parseResponse(response.text)
-            if (result != null) Result.success(result) else Result.failure(Exception("JSON parser returned null. Response: ${response.text}"))
+            if (result != null) {
+                Result.success(result)
+            } else {
+                Log.e(TAG, "El modelo respondió algo que no es el JSON esperado: ${response.text?.take(300)}")
+                Result.failure(Exception("JSON parser returned null. Response: ${response.text}"))
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            // Acá caen los errores del proveedor: cuota agotada (429), App Check
+            // rechazado (401), modelo inexistente (404). El mensaje del proveedor
+            // es lo único que permite distinguirlos, así que va entero al log.
+            Log.e(TAG, "Falló la lectura del ticket: ${e.message}", e)
             Result.failure(e)
         }
     }
@@ -129,7 +148,7 @@ class ReceiptScannerService {
         return try {
             jsonParser.decodeFromString<ExtractedReceipt>(cleanJson)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "El JSON del modelo no se pudo parsear: ${cleanJson.take(300)}", e)
             null
         }
     }
