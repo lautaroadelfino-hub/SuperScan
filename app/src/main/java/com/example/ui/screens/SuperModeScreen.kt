@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ShoppingCartCheckout
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.*
@@ -104,6 +105,15 @@ fun SuperModeScreen(
     var scannedBarcode by remember { mutableStateOf<String?>(null) }
     var tildadoEnLista by remember { mutableStateOf(false) }
     var isProcessingBarcode by remember { mutableStateOf(false) }
+
+    // El changuito sale de los ítems de la lista, que viven en Firestore: si el
+    // teléfono se bloquea o Android mata la app a mitad del súper, no se pierde.
+    val enElChanguito = itemsDeLaLista.count { it.scannedQuantity > 0.0 }
+    val totalChanguito = itemsDeLaLista.sumOf {
+        val unitario = if (it.precioPagado > 0.0) it.precioPagado else it.expectedPrice
+        unitario * it.scannedQuantity
+    }
+    var cerrandoCompra by remember { mutableStateOf(false) }
 
     var mostrarAltaRapida by remember { mutableStateOf(false) }
     var informandoPrecio by remember { mutableStateOf(false) }
@@ -194,9 +204,14 @@ fun SuperModeScreen(
                                                                 val items = viewModel.currentListItems.value
                                                                 val existing = items.find { it.barcode == prod.ean }
                                                                 if (existing != null) {
-                                                                    if (!existing.scanned) {
-                                                                        viewModel.toggleShoppingItem(existing.id, true)
-                                                                    }
+                                                                    // Al changuito: escanear de nuevo el mismo
+                                                                    // producto suma otra unidad, que es lo que
+                                                                    // hacés cuando agarrás dos del estante.
+                                                                    viewModel.sumarAlChanguito(
+                                                                        listId,
+                                                                        existing.id,
+                                                                        scannedPrice?.valorOrNull() ?: existing.expectedPrice
+                                                                    )
                                                                     tildadoEnLista = true
                                                                 } else {
                                                                     viewModel.addManualProductToList(listId, prod)
@@ -284,10 +299,50 @@ fun SuperModeScreen(
                 }
             }
             Spacer(modifier = Modifier.weight(1f))
+            // El total corriendo: saber cuánto llevás gastado ANTES de la caja es
+            // el motivo por el que alguien escanea mientras compra.
+            if (enElChanguito > 0) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        Formato.precio(totalChanguito),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                    Text(
+                        "$enElChanguito ${if (enElChanguito == 1) "producto" else "productos"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.75f)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
             ChipCadenaActiva(
                 cadenaId = cadenaActiva,
                 onClick = { eligiendoCadena = true }
             )
+        }
+
+        // Terminar la compra. Solo aparece cuando hay algo en el changuito: sin
+        // productos escaneados no hay nada que guardar.
+        if (enElChanguito > 0 && scannedProduct == null) {
+            ExtendedFloatingActionButton(
+                onClick = { cerrandoCompra = true },
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = if (faltantes.isEmpty()) 28.dp else 150.dp)
+            ) {
+                Icon(Icons.Default.ShoppingCartCheckout, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("TERMINAR", fontWeight = FontWeight.Black)
+            }
         }
 
         // Lo que falta del changuito, siempre a la vista
@@ -419,6 +474,22 @@ fun SuperModeScreen(
                 ) { Text("Seguir escaneando") }
             }
         }
+    }
+
+    if (cerrandoCompra) {
+        CerrarCompraDialog(
+            totalEscaneado = totalChanguito,
+            cantidadProductos = enElChanguito,
+            onCancelar = { cerrandoCompra = false },
+            onConfirmar = { totalReal ->
+                scope.launch {
+                    if (viewModel.cerrarCompra(listId, totalReal)) {
+                        cerrandoCompra = false
+                        onClose()
+                    }
+                }
+            }
+        )
     }
 
     // --- Informar precio: chips de TODAS las cadenas, la activa preseleccionada ---
@@ -684,4 +755,70 @@ private fun AltaRapidaSheet(
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Ignorar") }
         }
     }
+}
+
+/**
+ * Cierra la compra pidiendo lo único que la app no puede saber sola: cuánto
+ * salió en la caja.
+ *
+ * No se calcula porque entre lo que suman los productos y lo que se paga están
+ * los descuentos y las promociones —en un ticket real fácil el 10%— y la app
+ * todavía no los desglosa. Tipear un número cuesta cinco segundos y hace que el
+ * gasto del mes sea exacto en lugar de estimado.
+ */
+@Composable
+private fun CerrarCompraDialog(
+    totalEscaneado: Double,
+    cantidadProductos: Int,
+    onCancelar: () -> Unit,
+    onConfirmar: (Double) -> Unit
+) {
+    var texto by remember { mutableStateOf("") }
+    val ingresado = texto.replace(".", "").replace(',', '.').toDoubleOrNull()
+    val diferencia = ingresado?.let { it - totalEscaneado }
+
+    AlertDialog(
+        onDismissRequest = onCancelar,
+        title = { Text("Terminar la compra") },
+        text = {
+            Column {
+                Text(
+                    "Escaneaste $cantidadProductos ${if (cantidadProductos == 1) "producto" else "productos"} " +
+                        "por ${Formato.precio(totalEscaneado)}."
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("¿Cuánto te salió en la caja?", fontWeight = FontWeight.Bold)
+                OutlinedTextField(
+                    value = texto,
+                    onValueChange = { nuevo -> texto = nuevo.filter { it.isDigit() || it == ',' || it == '.' } },
+                    singleLine = true,
+                    prefix = { Text("$") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                )
+                // Explicar la diferencia en vez de dejar al usuario pensando que
+                // la app se equivocó: casi siempre son los descuentos de la caja.
+                if (diferencia != null && kotlin.math.abs(diferencia) > 1.0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        if (diferencia < 0) {
+                            "Pagaste ${Formato.precio(-diferencia)} menos: descuentos y promos de la caja."
+                        } else {
+                            "Pagaste ${Formato.precio(diferencia)} más. Puede ser algo que no llegaste a escanear, " +
+                                "como frutas o verdura."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { ingresado?.let(onConfirmar) },
+                enabled = ingresado != null && ingresado > 0
+            ) { Text("GUARDAR COMPRA") }
+        },
+        dismissButton = { TextButton(onClick = onCancelar) { Text("Seguir comprando") } }
+    )
 }

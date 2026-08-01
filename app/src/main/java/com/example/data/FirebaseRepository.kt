@@ -23,8 +23,22 @@ data class TicketModel(
     val id: String = "",
     val userId: String = "",
     val storeName: String = "",
+    /**
+     * Id de la cadena (la clave del map `precios`), no el nombre legible. Sin
+     * esto los precios de la compra no se pueden comparar contra nada: es el
+     * mismo motivo por el que `observaciones_precios` guarda `cadena` además de
+     * `comercio`. Vacío en los tickets viejos, cargados por foto.
+     */
+    val cadena: String = "",
     val date: String = "",
     val totalAmount: Double = 0.0,
+    /**
+     * Lo que sumaban los productos escaneados. La diferencia contra
+     * `totalAmount` —el de la caja— son los descuentos y promociones, que la app
+     * todavía no desglosa. Se guarda igual para tener el dato el día que se
+     * trabajen, en vez de arrancar sin historia.
+     */
+    val totalEscaneado: Double = 0.0,
     val items: List<TicketItemModel> = emptyList()
 )
 
@@ -72,6 +86,13 @@ data class SharedListItemModel(
     val targetQuantity: Double = 0.0,
     val scannedQuantity: Double = 0.0,
     val expectedPrice: Double = 0.0,
+    /**
+     * Lo que valía el producto cuando entró al changuito, en el súper donde se
+     * estaba comprando. Distinto de `expectedPrice`, que es la estimación del
+     * catálogo con la que se armó la lista: este es el precio de la compra real
+     * y es el que termina en el ticket.
+     */
+    val precioPagado: Double = 0.0,
     val scanned: Boolean = false
 )
 
@@ -126,6 +147,10 @@ class FirebaseRepository {
                 ean = ean,
                 descripcionCruda = item.productName,
                 comercio = finalTicket.storeName,
+                // Sin la cadena el precio no sirve para comparar. Los tickets
+                // cargados por foto la dejaban vacía; los del Modo Súper sí la
+                // saben, porque se elige el súper al empezar a comprar.
+                cadena = finalTicket.cadena,
                 precio = item.unitPrice,
                 fecha = finalTicket.date,
                 fuente = "ticket",
@@ -270,13 +295,23 @@ class FirebaseRepository {
     // 2) precio_publico, 3) precio_min (ver ProductModel.precioCatalogo).
     // Requiere el índice compuesto (ean, uid, fecha desc) de firestore.indexes.json.
     // Si el caller ya tiene el ProductModel, pasarlo evita releer el documento.
-    suspend fun getDisplayPrice(ean: String, producto: ProductModel? = null): DisplayPrice {
+    //
+    // `cadena` acota la observación al súper donde está parado el usuario. Sin
+    // eso, un precio informado en Vea se mostraba mientras comprabas en
+    // Carrefour: pasaba desapercibido en consultas sueltas, pero en el Modo
+    // Súper —donde elegís la cadena al entrar— sería un error en cada producto.
+    suspend fun getDisplayPrice(
+        ean: String,
+        producto: ProductModel? = null,
+        cadena: String? = null
+    ): DisplayPrice {
         return try {
             val uid = auth.currentUser?.uid
             if (uid != null) {
                 val obs = db.collection("observaciones_precios")
                     .whereEqualTo("ean", ean)
                     .whereEqualTo("uid", uid)
+                    .let { if (cadena != null) it.whereEqualTo("cadena", cadena) else it }
                     .orderBy("fecha", Query.Direction.DESCENDING)
                     .limit(1)
                     .get()
@@ -533,6 +568,103 @@ class FirebaseRepository {
     suspend fun toggleItemScanned(listId: String, itemId: String, scanned: Boolean) {
         val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
         itemRef.update("scanned", scanned).await()
+    }
+
+    /**
+     * Suma uno al changuito: el producto se escaneó en la góndola y va al carro.
+     *
+     * Se guarda en el ítem de la lista y no en memoria de la pantalla porque una
+     * compra dura media hora: el teléfono se bloquea, Android puede matar la app,
+     * y perder el carrito a mitad del súper sería insoportable. Como además la
+     * lista es compartida, el otro que está comprando ve en el momento lo que ya
+     * se puso en el changuito.
+     *
+     * `precioPagado` queda congelado en el primer escaneo: es lo que valía cuando
+     * el producto entró al carro.
+     */
+    suspend fun sumarAlChanguito(listId: String, itemId: String, precio: Double) {
+        val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
+        db.runTransaction { tx ->
+            val actual = tx.get(itemRef)
+            val cantidad = (actual.getDouble("scannedQuantity") ?: 0.0) + 1.0
+            val yaTenia = actual.getDouble("precioPagado") ?: 0.0
+            tx.update(
+                itemRef,
+                mapOf(
+                    "scannedQuantity" to cantidad,
+                    "scanned" to true,
+                    "precioPagado" to if (yaTenia > 0.0) yaTenia else precio
+                )
+            )
+        }.await()
+    }
+
+    /** Deshacer: saca una unidad del changuito, y si llega a cero destilda. */
+    suspend fun restarDelChanguito(listId: String, itemId: String) {
+        val itemRef = db.collection("shared_lists").document(listId).collection("items").document(itemId)
+        db.runTransaction { tx ->
+            val actual = tx.get(itemRef)
+            val cantidad = ((actual.getDouble("scannedQuantity") ?: 0.0) - 1.0).coerceAtLeast(0.0)
+            tx.update(itemRef, mapOf("scannedQuantity" to cantidad, "scanned" to (cantidad > 0.0)))
+        }.await()
+    }
+
+    /**
+     * Cierra la compra: convierte lo que quedó en el changuito en un ticket.
+     *
+     * `totalReal` es lo que salió en la caja, que el usuario tipea al terminar.
+     * No se calcula: entre lo que suman los productos y lo que se paga están los
+     * descuentos y las promociones, que la app todavía no desglosa. Preguntarlo
+     * cuesta cinco segundos y hace que el gasto del mes sea exacto en vez de
+     * estimado.
+     *
+     * Devuelve el ticket guardado, o null si no había nada escaneado.
+     */
+    suspend fun cerrarCompra(
+        listId: String,
+        cadena: String,
+        nombreComercio: String,
+        totalReal: Double,
+        fecha: String
+    ): TicketModel? {
+        val docs = db.collection("shared_lists").document(listId).collection("items").get().await()
+        val comprados = docs.documents
+            .mapNotNull { it.toObject(SharedListItemModel::class.java) }
+            .filter { it.scannedQuantity > 0.0 }
+        if (comprados.isEmpty()) return null
+
+        val items = comprados.map {
+            val unitario = if (it.precioPagado > 0.0) it.precioPagado else it.expectedPrice
+            TicketItemModel(
+                productName = it.productName,
+                category = it.category.ifBlank { "Varios" },
+                quantity = it.scannedQuantity,
+                unitPrice = unitario,
+                totalPrice = unitario * it.scannedQuantity,
+                barcode = it.barcode
+            )
+        }
+        val ticket = TicketModel(
+            storeName = nombreComercio,
+            cadena = cadena,
+            date = fecha,
+            totalAmount = totalReal,
+            totalEscaneado = items.sumOf { it.totalPrice },
+            items = items
+        )
+        saveTicket(ticket)
+        vaciarChanguito(listId)
+        return ticket
+    }
+
+    /** Vacía el changuito de toda la lista, sin borrar los ítems. */
+    suspend fun vaciarChanguito(listId: String) {
+        val items = db.collection("shared_lists").document(listId).collection("items").get().await()
+        val lote = db.batch()
+        items.documents.forEach {
+            lote.update(it.reference, mapOf("scannedQuantity" to 0.0, "scanned" to false, "precioPagado" to 0.0))
+        }
+        lote.commit().await()
     }
 
     suspend fun updateItemQuantity(listId: String, itemId: String, quantity: Double) {

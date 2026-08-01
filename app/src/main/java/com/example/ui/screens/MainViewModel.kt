@@ -566,7 +566,13 @@ class MainViewModel(
     }
 
     // Precio a mostrar: observación propia más reciente, o precio de referencia
-    suspend fun getDisplayPrice(ean: String): DisplayPrice = firebaseRepository.getDisplayPrice(ean)
+    /**
+     * Precio a mostrar. Si hay una cadena activa —o sea, si estás comprando en un
+     * súper concreto— se acota la observación a esa cadena: un precio que
+     * informaste en Vea no dice nada de lo que vale en Carrefour.
+     */
+    suspend fun getDisplayPrice(ean: String): DisplayPrice =
+        firebaseRepository.getDisplayPrice(ean, cadena = cadenaActiva)
 
     suspend fun getPriceHistory(ean: String): List<ObservacionPrecio> = try {
         firebaseRepository.getPriceHistory(ean)
@@ -610,6 +616,74 @@ class MainViewModel(
     } catch (e: Exception) {
         showError("No se pudo guardar el precio. ${mensajeHumano(e)}")
         false
+    }
+
+    // --- La compra en curso (Modo Súper) ---
+
+    /**
+     * Un producto entró al changuito. Vive en Firestore y no acá: una compra dura
+     * media hora y perder el carrito porque Android mató la app sería
+     * insoportable. Además la lista es compartida, así que el otro que está
+     * comprando lo ve en el momento.
+     */
+    fun sumarAlChanguito(listId: String, itemId: String, precio: Double) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                firebaseRepository.sumarAlChanguito(listId, itemId, precio)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showError("No pudimos sumarlo al changuito. ${mensajeHumano(e)}")
+            }
+        }
+    }
+
+    fun restarDelChanguito(listId: String, itemId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                firebaseRepository.restarDelChanguito(listId, itemId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                showError("No pudimos sacarlo del changuito. ${mensajeHumano(e)}")
+            }
+        }
+    }
+
+    /**
+     * Cierra la compra con el total que salió en la caja y la guarda como ticket.
+     * Devuelve true si se guardó: la pantalla recién ahí se cierra.
+     */
+    suspend fun cerrarCompra(listId: String, totalReal: Double): Boolean {
+        val cadena = cadenaActiva ?: run {
+            showError("Antes de cerrar la compra decinos en qué súper estás.")
+            return false
+        }
+        return try {
+            val hoy = java.time.LocalDate.now().toString()
+            val ticket = firebaseRepository.cerrarCompra(
+                listId = listId,
+                cadena = cadena,
+                nombreComercio = com.example.data.Cadenas.nombre(cadena),
+                totalReal = totalReal,
+                fecha = hoy
+            )
+            if (ticket == null) {
+                showError("No escaneaste nada todavía.")
+                false
+            } else {
+                val n = ticket.items.size
+                mostrarMensaje(
+                    MensajeUi("Compra guardada · $n ${if (n == 1) "producto" else "productos"}")
+                )
+                true
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            showError("No pudimos guardar la compra. ${mensajeHumano(e)}")
+            false
+        }
     }
 
     /** Cadenas conocidas para elegir dónde estoy: las del catálogo, nunca una lista fija */

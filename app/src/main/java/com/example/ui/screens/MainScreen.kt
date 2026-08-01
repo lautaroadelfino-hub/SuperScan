@@ -1,19 +1,11 @@
 package com.example.ui.screens
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.ImageDecoder
-import android.net.Uri
-import android.os.Build
-import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import java.io.File
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.expandVertically
@@ -49,9 +41,14 @@ import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
 
 // Estructura Góndola: 4 zonas (Listas · Catálogo · Mis compras · Perfil) con el
-// botón de escaneo en el centro de la barra. El botón es CONTEXTUAL: en Listas
-// y Mis compras carga un ticket; en Catálogo escanea un producto. Nunca promete
-// dos cosas a la vez.
+// botón de escaneo en el centro de la barra. El botón es CONTEXTUAL: en Catálogo
+// escanea un producto; en el resto lleva a comprar. Nunca promete dos cosas a la
+// vez.
+//
+// La compra se carga escaneando en la góndola con el Modo Súper, no
+// fotografiando el ticket al volver: leer un ticket de papel térmico sin un
+// modelo de IA no da la precisión necesaria, y un precio mal leído ensucia el
+// comparador sin que nadie se entere.
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onLogout: () -> Unit) {
@@ -71,7 +68,6 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
     val estaOnline = rememberEstaOnline()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableStateOf(0) }
-    var showBottomSheet by remember { mutableStateOf(false) }
     var productToAddToList by remember { mutableStateOf<com.example.data.ProductModel?>(null) }
 
     // Los errores de acción viven acá: un Snackbar que no tapa la app ni obliga
@@ -86,60 +82,6 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
             if (resultado == SnackbarResult.ActionPerformed) {
                 mensaje.onAccion?.invoke()
             }
-        }
-    }
-
-    // TakePicture (y no TakePicturePreview): el contrato "Preview" devuelve la
-    // MINIATURA del extra "data", de unos 240x320. Con eso es imposible leer los
-    // renglones de un ticket. Este escribe la foto entera en un archivo nuestro.
-    var fotoTicketUri by remember { mutableStateOf<Uri?>(null) }
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { exito: Boolean ->
-        val uri = fotoTicketUri
-        if (exito && uri != null) {
-            val bitmap = uriToBitmap(context, uri)
-            if (bitmap != null) viewModel.processImage(bitmap)
-            else viewModel.showError("No pudimos abrir la foto que sacaste. Probá de nuevo.")
-            // El archivo ya no hace falta: la foto del ticket no se guarda.
-            runCatching { context.contentResolver.delete(uri, null, null) }
-        }
-        fotoTicketUri = null
-    }
-
-    // El manifest declara CAMERA, así que lanzar ACTION_IMAGE_CAPTURE sin tenerlo
-    // concedido tira SecurityException y voltea la app. Hay que pedirlo acá: el
-    // único pedido en runtime que existía estaba en el Modo Súper, y a esta
-    // pantalla se llega sin pasar por ahí.
-    val permisoCamara = rememberPermissionState(android.Manifest.permission.CAMERA)
-    var esperandoPermisoCamara by remember { mutableStateOf(false) }
-
-    fun sacarFotoDelTicket() {
-        val archivo = File(context.cacheDir, "ticket_${System.currentTimeMillis()}.jpg")
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", archivo)
-        fotoTicketUri = uri
-        cameraLauncher.launch(uri)
-    }
-
-    LaunchedEffect(esperandoPermisoCamara, permisoCamara.status.isGranted) {
-        if (esperandoPermisoCamara && permisoCamara.status.isGranted) {
-            esperandoPermisoCamara = false
-            sacarFotoDelTicket()
-        }
-    }
-
-    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            val bitmap = uriToBitmap(context, uri)
-            if (bitmap != null) {
-                viewModel.processImage(bitmap)
-            } else {
-                viewModel.showError("No pudimos abrir esa imagen. Probá con otra.")
-            }
-        }
-    }
-
-    val pdfPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            viewModel.processPdf(uri, context)
         }
     }
 
@@ -287,17 +229,11 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                                         setPrompt("Apuntá al código de barras del producto")
                                     }
                                 )
-                            } else if (!viewModel.estadoEscaneoTicket.habilitado) {
-                                // Mejor avisar acá que hacerlo sacar la foto, esperar
-                                // y recién entonces fallar.
-                                viewModel.mostrarMensaje(
-                                    MensajeUi(
-                                        texto = viewModel.estadoEscaneoTicket.mensajeODefault(),
-                                        duracionLarga = true
-                                    )
-                                )
                             } else {
-                                showBottomSheet = true
+                                // La compra se carga escaneando en la góndola, no
+                                // fotografiando el ticket después: el botón lleva a
+                                // las listas, que es de donde arranca el Modo Súper.
+                                selectedTab = 0
                             }
                         }
                     )
@@ -385,44 +321,6 @@ fun MainScreen(viewModel: MainViewModel, catalogViewModel: CatalogViewModel, onL
                         )
                     }
 
-                    if (showBottomSheet) {
-                        ModalBottomSheet(onDismissRequest = { showBottomSheet = false }) {
-                            Column(modifier = Modifier.padding(16.dp).padding(bottom = 32.dp)) {
-                                Text("Cargar ticket", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                                ListItem(
-                                    headlineContent = { Text("Sacar foto") },
-                                    leadingContent = { Icon(Icons.Default.CameraAlt, contentDescription = null) },
-                                    modifier = Modifier.clickable {
-                                        showBottomSheet = false
-                                        if (permisoCamara.status.isGranted) {
-                                            sacarFotoDelTicket()
-                                        } else {
-                                            // Si deniega, las otras dos opciones del
-                                            // sheet siguen andando sin permiso.
-                                            esperandoPermisoCamara = true
-                                            permisoCamara.launchPermissionRequest()
-                                        }
-                                    }
-                                )
-                                ListItem(
-                                    headlineContent = { Text("Elegir de la galería") },
-                                    leadingContent = { Icon(Icons.Default.Image, contentDescription = null) },
-                                    modifier = Modifier.clickable {
-                                        showBottomSheet = false
-                                        imagePickerLauncher.launch("image/*")
-                                    }
-                                )
-                                ListItem(
-                                    headlineContent = { Text("Subir PDF") },
-                                    leadingContent = { Icon(Icons.Default.Description, contentDescription = null) },
-                                    modifier = Modifier.clickable {
-                                        showBottomSheet = false
-                                        pdfPickerLauncher.launch("application/pdf")
-                                    }
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -485,12 +383,12 @@ private fun BarraGondola(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
-                        if (esCatalogo) Icons.Default.QrCodeScanner else Icons.Default.ReceiptLong,
-                        contentDescription = if (esCatalogo) "Escanear producto" else "Cargar ticket",
+                        if (esCatalogo) Icons.Default.QrCodeScanner else Icons.Default.ShoppingCart,
+                        contentDescription = if (esCatalogo) "Escanear producto" else "Ir a comprar",
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        if (esCatalogo) "ESCANEAR" else "TICKET",
+                        if (esCatalogo) "ESCANEAR" else "COMPRAR",
                         fontSize = 8.sp,
                         lineHeight = 9.sp,
                         fontWeight = FontWeight.Black,
@@ -801,44 +699,4 @@ fun ErrorDeCarga(
     }
 }
 
-// Un ticket a 2000 px de lado mayor se lee sin problemas. Más que eso solo suma
-// megabytes: una foto de 12 MP ocupa ~48 MB en memoria como ARGB_8888 y hace
-// reventar los celulares con poca RAM antes siquiera de llegar a mandarla.
-private const val LADO_MAXIMO_TICKET = 2000
 
-/** Potencia de 2 más chica que deja el lado mayor por debajo del máximo. */
-private fun muestreoPara(ladoMayor: Int): Int {
-    var muestreo = 1
-    while (ladoMayor / muestreo > LADO_MAXIMO_TICKET) muestreo *= 2
-    return muestreo
-}
-
-private fun uriToBitmap(context: Context, uri: Uri): Bitmap? {
-    return try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val source = ImageDecoder.createSource(context.contentResolver, uri)
-            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-                decoder.isMutableRequired = true
-                // Se baja la resolución DURANTE la decodificación, no después:
-                // escalar a posteriori exige haber cargado la imagen entera, que
-                // es justamente lo que queremos evitar.
-                val lado = maxOf(info.size.width, info.size.height)
-                if (lado > LADO_MAXIMO_TICKET) decoder.setTargetSampleSize(muestreoPara(lado))
-            }
-        } else {
-            val opcionesMedida = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, opcionesMedida)
-            }
-            val opciones = BitmapFactory.Options().apply {
-                inSampleSize = muestreoPara(maxOf(opcionesMedida.outWidth, opcionesMedida.outHeight))
-            }
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, opciones)
-            }
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("GondolaScanner", "No se pudo decodificar la imagen del ticket", e)
-        null
-    }
-}

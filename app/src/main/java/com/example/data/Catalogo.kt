@@ -60,6 +60,18 @@ sealed interface DisplayPrice {
     /** Sin precio todavía: invitar a informarlo */
     data object None : DisplayPrice
     data class Failure(val mensaje: String) : DisplayPrice
+
+    /**
+     * El número, para cuando hay que hacer cuentas y no mostrar texto: sumar el
+     * changuito, guardar lo que se pagó. Null cuando no hay precio conocido, que
+     * es distinto de cero: cero sería "es gratis".
+     */
+    fun valorOrNull(): Double? = when (this) {
+        is UserObservation -> precio
+        is PublicPrice -> precio
+        is MinPrice -> precio
+        None, is Failure -> null
+    }
 }
 
 // Diccionario ÚNICO de nombres legibles por cadena. Las cadenas van a crecer:
