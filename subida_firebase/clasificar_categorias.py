@@ -214,9 +214,16 @@ def main():
 
     import firebase_admin
     from firebase_admin import credentials, firestore
+
+    import cache_catalogo
+
     firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
     db = firestore.client()
     print(f"\nEscribiendo {len(estado)} productos en Firestore...")
+    # La foto local del catalogo (cache_catalogo.py) deja de valer: este script
+    # cambia categoria y subcategoria, que la foto guarda para armar el arbol.
+    cache_catalogo.invalidar(db)
+
     lote_fs, n, escritos = db.batch(), 0, 0
     for ean, valor in estado.items():
         cat, sub = valor.split(">", 1)

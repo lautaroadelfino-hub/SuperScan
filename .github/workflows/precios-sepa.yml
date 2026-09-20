@@ -4,14 +4,28 @@
 # actualiza Firestore. Todo el trabajo lo hace subida_firebase/refrescar_sepa.py:
 # aca solo esta el reloj.
 #
+# HAY DOS RELOJES, y es por la cuota:
+#
+#   - lunes 16:00 ART: el refresco de precios.
+#   - todos los dias 05:00 ART: mantener la foto del catalogo
+#     (subida_firebase/cache_catalogo.py). El proyecto esta en el plan Spark,
+#     que da 50.000 lecturas por dia compartidas con la app, y el catalogo tiene
+#     60.378 documentos: armar la foto de cero NO entra en un dia. Se arma por
+#     tramos guardando el cursor, y una vez completa este job cuesta ~62
+#     lecturas y sale enseguida. Tambien la rehace sola si algun script del
+#     pipeline la invalido.
+#
+# Con la foto al dia, un refresco completo sale ~62 lecturas en vez de ~85.000.
+#
 # ESTE REPO ES PUBLICO. Por eso:
 #   - los unicos disparadores son schedule y workflow_dispatch (nunca
 #     pull_request_target ni issue_comment: por ahi se lleva un fork el secret);
 #   - el GITHUB_TOKEN va con permisos de solo lectura;
 #   - las actions estan fijadas por SHA, no por tag (un tag se puede mover);
 #   - el service account se escribe en disco y no se imprime nunca. Conviene que
-#     sea uno dedicado, con el rol roles/datastore.user y nada mas, y no el
-#     firebase-adminsdk que ademas puede firmar tokens y tocar Storage.
+#     sea uno dedicado, con los roles roles/datastore.user y
+#     roles/storage.objectAdmin y nada mas, y no el firebase-adminsdk que ademas
+#     puede firmar tokens.
 #   - los logs y los artifacts de un repo publico los ve cualquiera. Lo que se
 #     sube (precios de SEPA) ya es publico; el service account, nunca.
 #
@@ -29,13 +43,15 @@ on:
     # Segundo intento por si el portal se atraso. Con --si-hace-falta sale sin
     # hacer nada si el de las 16 ya dejo el catalogo al dia.
     - cron: "0 22 * * 1"
+    # Todos los dias 08:00 UTC = 05:00 ART: la foto del catalogo.
+    - cron: "0 8 * * *"
   workflow_dispatch:
     inputs:
       modo:
-        description: "probar = solo conectividad | simular = no escribe nada | aplicar = escribe en Firestore"
+        description: "probar = solo conectividad | cache = solo la foto | simular = no escribe | aplicar = escribe"
         type: choice
         default: probar
-        options: [probar, simular, aplicar]
+        options: [probar, cache, simular, aplicar]
       dia:
         description: "Dia de la semana a bajar (vacio = el de hoy)"
         type: string
@@ -53,8 +69,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      # En las corridas programadas no hay inputs: ahi el modo es aplicar.
-      MODO: ${{ inputs.modo || 'aplicar' }}
+      # En las corridas programadas no hay inputs: el cron diario mantiene la
+      # foto y los del lunes hacen el refresco.
+      MODO: ${{ inputs.modo || (github.event.schedule == '0 8 * * *' && 'cache' || 'aplicar') }}
 
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
@@ -74,7 +91,7 @@ jobs:
         working-directory: subida_firebase
         run: python bajar_sepa.py --probar ${{ inputs.dia && format('--dia {0}', inputs.dia) || '' }}
 
-      # --- simular / aplicar --------------------------------------------------
+      # --- todo lo demas necesita Firestore -----------------------------------
       - name: Escribir credenciales
         if: env.MODO != 'probar'
         env:
@@ -89,8 +106,25 @@ jobs:
           # Lo unico que se imprime del service account es el proyecto.
           python -c "import json; print('service account del proyecto', json.load(open('subida_firebase/credenciales.json'))['project_id'])"
 
+      # La foto vive en Firebase Storage porque el runner es efimero. El script
+      # la baja y la sube solo; aca no hay que hacer nada.
+      - name: Mantener la foto del catalogo
+        if: env.MODO == 'cache'
+        working-directory: subida_firebase
+        run: |
+          set +e
+          python refrescar_sepa.py --solo-cache 2>&1 | tee refresco.log
+          codigo=${PIPESTATUS[0]}
+          # 2 = la foto quedo a medias. Es lo esperado los primeros dias: son
+          # 60k documentos y la cuota diaria son 50k. Manana sigue.
+          if [ "$codigo" = "2" ]; then
+            echo "La foto todavia se esta armando; el cron de manana la sigue."
+            exit 0
+          fi
+          exit $codigo
+
       - name: Refrescar precios
-        if: env.MODO != 'probar'
+        if: env.MODO == 'simular' || env.MODO == 'aplicar'
         working-directory: subida_firebase
         run: |
           set -o pipefail
@@ -107,16 +141,18 @@ jobs:
             {
               echo '```'
               sed -n '/^RESUMEN$/,$p' refresco.log | head -40
+              tail -5 refresco.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Guardar la descarga filtrada
-        if: always() && env.MODO != 'probar'
+        if: always() && (env.MODO == 'simular' || env.MODO == 'aplicar')
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5
         with:
           name: sepa-${{ github.run_id }}
-          # Datos de SEPA (publicos) y la cola de altas. NUNCA credenciales.json.
+          # Datos de SEPA (publicos) y la cola de altas. NUNCA credenciales.json
+          # ni la foto del catalogo, que vive en Storage.
           path: |
             subida_firebase/Datos*/**
             subida_firebase/altas_pendientes.json

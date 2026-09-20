@@ -74,6 +74,14 @@ abajo en orden. A mano: `python refrescar_sepa.py` simula y `--aplicar` escribe.
   porque comparten el documento `catalogo_meta/precios`.
 - `sepa_comun.py` tiene el mapa comercio→cadena, las sucursales y los índices de
   columna. No duplicar esas constantes en ningún lado.
+- **Cuota**: el proyecto está en el plan **Spark** (50k lecturas/día, compartidas
+  con la app). Escanear el catálogo son 60.378 lecturas, así que no entra. Por eso
+  `cache_catalogo.py` mantiene una foto local (en Storage, porque el runner de CI
+  es efímero) y un refresco en régimen cuesta **~62 lecturas**. La foto se valida
+  con el `cache_token` de `catalogo_meta/precios` más un `count()` (que cobra 1
+  lectura cada 1000). **Cualquier script que escriba `productos` tiene que llamar
+  a `cache_catalogo.invalidar(db)`**, o el diff de precios saltea escrituras en
+  silencio. Armarla de cero lleva dos días: la hace por tramos un cron diario.
 
 Etapas (también se pueden correr sueltas sobre una descarga manual):
 - `actualizar_precios.py --datos "Datos AAAA-MM-DD"` — refresca `precios`,

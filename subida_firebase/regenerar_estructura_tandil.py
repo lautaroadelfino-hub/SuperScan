@@ -18,6 +18,11 @@ Correr DESPUES de cualquier script que agregue productos o cambie categorias.
 Uso:
     python regenerar_estructura_tandil.py            # simulacion
     python regenerar_estructura_tandil.py --aplicar
+    python regenerar_estructura_tandil.py --desde-cache --aplicar
+
+Con --desde-cache se arma el arbol desde la foto local que deja
+actualizar_precios.py --cache, sin leer un solo documento de Firestore. Es lo
+que hace falta para que el refresco entre en la cuota del plan Spark.
 """
 import sys
 from pathlib import Path
@@ -25,19 +30,58 @@ from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+import cache_catalogo
+
 CARPETA = Path(__file__).resolve().parent
 CREDENCIALES = CARPETA / "credenciales.json"
 SIN_CLASIFICAR = "Sin clasificar"
 
 
+def desde_firestore(db):
+    """(precios, categoria, subcategoria, marca) de cada producto visible."""
+    consulta = (db.collection("productos")
+                  .where("en_tandil", "==", True)
+                  .select(["categoria", "subcategoria", "marca", "precios"]))
+    for doc in consulta.stream():
+        d = doc.to_dict() or {}
+        yield ({c: v for c, v in (d.get("precios") or {}).items() if v and v > 0},
+               (d.get("categoria") or "").strip(),
+               (d.get("subcategoria") or "").strip(),
+               (d.get("marca") or "").strip().upper())
+
+
+def desde_cache(cache):
+    """Lo mismo, pero de la foto local: cero lecturas de Firestore.
+
+    La foto la deja actualizar_precios.py con los precios ya aplicados, y trae
+    estos cuatro campos porque pedirlos en el mismo select() no costaba una
+    lectura mas (Firestore cobra por documento, no por campo)."""
+    for precios, cat, sub, marca, en_tandil in cache["docs"].values():
+        if en_tandil:
+            yield precios, cat, sub, marca
+
+
 def main():
     aplicar = "--aplicar" in sys.argv
+    usar_cache = "--desde-cache" in sys.argv
 
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
-    db = firestore.client()
+    db = None
+    if usar_cache:
+        cache = cache_catalogo.cargar()
+        if cache is None or not cache.get("completa"):
+            print("No hay una foto completa del catalogo. Corre primero "
+                  "actualizar_precios.py --cache, o sacá --desde-cache.")
+            sys.exit(2)
+        print(f"Leyendo los productos visibles de la foto local "
+              f"({len(cache['docs'])} documentos, 0 lecturas)...")
+        fuente = desde_cache(cache)
+    else:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
+        db = firestore.client()
+        print("Leyendo los productos visibles de Firestore (en_tandil = true)...")
+        fuente = desde_firestore(db)
 
-    print("Leyendo los productos visibles (en_tandil = true)...")
     arbol = {}
     incluidos = descartados = 0
     # De paso se cuenta la cobertura: la app la muestra tal cual es, y el
@@ -45,27 +89,19 @@ def main():
     # incluye lo que no se consigue en Tandil).
     visibles = con_precio = precios_totales = 0
     por_cadena = {}
-    consulta = (db.collection("productos")
-                  .where("en_tandil", "==", True)
-                  .select(["categoria", "subcategoria", "marca", "precios"]))
-    for doc in consulta.stream():
-        d = doc.to_dict() or {}
+    for precios, cat, sub, marca in fuente:
         visibles += 1
-        precios = {c: v for c, v in (d.get("precios") or {}).items() if v and v > 0}
         if precios:
             con_precio += 1
             precios_totales += len(precios)
             for c in precios:
                 por_cadena[c] = por_cadena.get(c, 0) + 1
-        cat = (d.get("categoria") or "").strip()
-        sub = (d.get("subcategoria") or "").strip()
         # Una categoria vacia o "Sin clasificar" en la grilla es una puerta a
         # una bolsa de gatos: no entra al arbol.
         if not cat or not sub or cat == SIN_CLASIFICAR or sub == SIN_CLASIFICAR:
             descartados += 1
             continue
         incluidos += 1
-        marca = (d.get("marca") or "").strip().upper()
         marcas = arbol.setdefault(cat, {}).setdefault(sub, set())
         if marca:
             marcas.add(marca)
@@ -104,6 +140,11 @@ def main():
     if not aplicar:
         print("\n(simulacion: no se escribio nada. Correr con --aplicar)")
         return
+
+    if db is None:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
+        db = firestore.client()
 
     db.collection("catalogo_meta").document("estructura").set(estructura)
     # merge: la fecha de los datos la escribe actualizar_precios.py en el mismo

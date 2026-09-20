@@ -33,6 +33,8 @@ from pathlib import Path
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+import cache_catalogo
+
 try:
     from google.api_core.exceptions import ResourceExhausted
 except ImportError:
@@ -70,7 +72,7 @@ def fecha_de_los_datos(datos):
     return m.group(1) if m else None
 
 
-def escribir_meta(db, datos, cadenas):
+def escribir_meta(db, datos, cadenas, cache_token=None):
     """catalogo_meta/precios: la app lo lee para mostrar 'precios al 31/07'
     arriba de todo. Sin esto no hay forma de saber si el dato es de ayer o de
     hace tres meses."""
@@ -82,6 +84,7 @@ def escribir_meta(db, datos, cadenas):
         "fecha_datos": fecha,
         "origen": datos.name,
         "cadenas": sorted(cadenas),
+        "cache_token": cache_token,
         "actualizado": firestore.SERVER_TIMESTAMP,
     }, merge=True)   # merge: los contadores de cobertura los pone
                      # regenerar_estructura_tandil.py y no hay que pisarlos
@@ -126,6 +129,9 @@ def main():
     aplicar = "--aplicar" in sys.argv
     volcar_nuevos = (sys.argv[sys.argv.index("--volcar-nuevos") + 1]
                      if "--volcar-nuevos" in sys.argv else None)
+    usar_cache = "--cache" in sys.argv
+    tope_lecturas = int(sys.argv[sys.argv.index("--tope-lecturas") + 1]
+                        if "--tope-lecturas" in sys.argv else 40000)
     if "--datos" not in sys.argv:
         print("Falta --datos \"Datos AAAA-MM-DD\"")
         sys.exit(1)
@@ -155,13 +161,33 @@ def main():
         firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
     db = firestore.client()
 
-    print("\nLeyendo el catalogo actual de Firestore...")
-    actual = {}
-    for doc in db.collection(COLECCION).select(["precios"]).stream():
-        actual[doc.id] = (doc.to_dict() or {}).get("precios") or {}
-        if len(actual) % 20000 == 0:
-            print(f"  {len(actual)} leidos...", flush=True)
-    print(f"Productos en el catalogo: {len(actual)}")
+    cache = None
+    if usar_cache:
+        # Plan Spark: 50k lecturas por dia, compartidas con la app. Escanear los
+        # 60k documentos acá y otros 25k en regenerar_estructura no entra. La
+        # foto local cuesta ~62 lecturas validarla (ver cache_catalogo.py).
+        print("\nValidando la foto local del catalogo...")
+        try:
+            cache, sirve, lecturas = cache_catalogo.asegurar(db, tope_lecturas)
+        except ResourceExhausted:
+            print("\nSe acabo la cuota diaria de lecturas de Firestore. "
+                  "La foto retoma manana donde quedo.")
+            sys.exit(2)
+        if not sirve:
+            print("\nNo hay una foto completa del catalogo todavia, asi que no "
+                  "puedo calcular el diff sin arriesgarme a saltear escrituras. "
+                  "Volve a correr (la proxima retoma donde quedo).")
+            sys.exit(2)
+        actual = {ean: f[0] for ean, f in cache["docs"].items()}
+        print(f"Productos en el catalogo: {len(actual)} ({lecturas} lecturas)")
+    else:
+        print("\nLeyendo el catalogo actual de Firestore...")
+        actual = {}
+        for doc in db.collection(COLECCION).select(["precios"]).stream():
+            actual[doc.id] = (doc.to_dict() or {}).get("precios") or {}
+            if len(actual) % 20000 == 0:
+                print(f"  {len(actual)} leidos...", flush=True)
+        print(f"Productos en el catalogo: {len(actual)}")
 
     # Guardrail: una cadena que se desploma es un error de descarga, no una
     # liquidacion. Mejor abortar que borrarle los precios a media base.
@@ -246,6 +272,13 @@ def main():
         print("\n(simulacion: no se escribio nada. Correr con --aplicar)")
         return
 
+    # La foto deja de valer desde el primer batch: si la corrida se corta por
+    # cuota a mitad de camino, Firestore queda con precios que la foto no tiene.
+    # Se invalida ANTES de escribir y se revalida al final; un corte en el medio
+    # obliga a reescanear, que es lento pero correcto.
+    if cache is not None:
+        cache_catalogo.invalidar(db)
+
     print(f"\nEscribiendo {len(pendientes)} productos...")
     lote = db.batch()
     n = escritos = 0
@@ -268,7 +301,20 @@ def main():
         lote.commit()
         escritos += n
 
-    fecha = escribir_meta(db, datos, cadenas_en_esta_corrida)
+    # Todo escrito: la foto vuelve a coincidir con Firestore. Se le aplica el
+    # mismo diff que acabamos de mandar y se sella con un token nuevo.
+    token = None
+    if cache is not None:
+        for ean, campos in pendientes:
+            if ean in cache["docs"]:
+                cache["docs"][ean][0] = campos["precios"]
+        token = cache_catalogo.nuevo_token()
+        cache["token"] = token
+        tam = cache_catalogo.guardar(cache)
+        print(f"Foto del catalogo actualizada ({tam / 1024 / 1024:.1f} MB).")
+        cache_catalogo.subir_a_storage()
+
+    fecha = escribir_meta(db, datos, cadenas_en_esta_corrida, token)
     print(f"Listo: {escritos} productos con precios al dia (datos del {fecha}).")
 
 

@@ -40,6 +40,8 @@ import firebase_admin
 import requests
 from firebase_admin import credentials, firestore
 
+import cache_catalogo
+
 from actualizar_precios import COMERCIOS, carpeta_de, norm_ean, num, fecha_de_los_datos
 from clasificar_categorias import LOTE, PAUSA, api_key, clasificar_lote
 from corregir_nombres import elegir_descripcion, elegir_marca, es_outlier, limpiar_desc, ESPACIOS
@@ -293,6 +295,10 @@ def main():
         if not firebase_admin._apps:
             firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
         db = firestore.client()
+
+    # La foto local del catalogo (cache_catalogo.py) deja de valer: sin esto
+    # el diff de actualizar_precios.py saltearia escrituras en silencio.
+    cache_catalogo.invalidar(db)
 
     lote = db.batch()
     n = escritos = 0

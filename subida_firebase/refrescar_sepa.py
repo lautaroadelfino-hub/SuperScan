@@ -103,6 +103,34 @@ def ya_esta_al_dia(frescura):
     return atraso <= frescura
 
 
+def construir_cache(tope):
+    """Deja la foto del catalogo lo mas completa que permita la cuota del dia.
+
+    Armarla de cero son ~60k lecturas y el plan Spark da 50k por dia, asi que la
+    primera vez lleva dos corridas. Una vez completa, esto cuesta ~62 lecturas y
+    sale enseguida: por eso lo corre un cron diario, que ademas la reconstruye
+    sola si algun script la invalido.
+    """
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    import cache_catalogo
+
+    titulo("Foto del catalogo")
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(
+            credentials.Certificate(str(CARPETA / "credenciales.json")),
+            {"storageBucket": cache_catalogo.BUCKET})
+    db = firestore.client()
+    try:
+        _cache, sirve, lecturas = cache_catalogo.asegurar(db, tope)
+    except cache_catalogo.ResourceExhausted:
+        log("\nSe acabo la cuota diaria de lecturas de Firestore. "
+            "El cron de manana retoma donde quedo.")
+        return 2
+    log(f"\n{'Completa' if sirve else 'Todavia incompleta'} ({lecturas} lecturas).")
+    return 0 if sirve else 2
+
+
 def limpiar_viejas(conservar):
     """Borra descargas viejas, pero solo las que hicimos nosotros."""
     nuestras = sorted(
@@ -151,6 +179,9 @@ def main():
     aplicar = "--aplicar" in argv
     si_hace_falta = "--si-hace-falta" in argv
     usar = opcion("--usar")          # re-correr sobre una descarga que ya esta
+    sin_cache = "--sin-cache" in argv
+    solo_cache = "--solo-cache" in argv
+    tope = opcion("--tope-lecturas", "40000")
     conservar = int(opcion("--conservar", CONSERVAR))
     frescura = int(opcion("--frescura", FRESCURA_DIAS))
 
@@ -165,6 +196,9 @@ def main():
     log(f"Refresco de precios SEPA - {datetime.now():%Y-%m-%d %H:%M}")
     log("MODO SIMULACION (nada se escribe; agregar --aplicar)" if not aplicar
         else "MODO APLICAR (se escribe en Firestore)")
+
+    if solo_cache:
+        return construir_cache(int(tope))
 
     if si_hace_falta and ya_esta_al_dia(frescura):
         log("Nada que hacer: el catalogo ya esta al dia.")
@@ -196,7 +230,15 @@ def main():
     titulo("2/4  Actualizando precios")
     codigo, salidas["precios"] = correr(
         "actualizar_precios.py", "--datos", carpeta.name,
-        "--volcar-nuevos", NUEVOS, *(["--aplicar"] if aplicar else []))
+        "--volcar-nuevos", NUEVOS,
+        *([] if sin_cache else ["--cache", "--tope-lecturas", tope]),
+        *(["--aplicar"] if aplicar else []))
+    if codigo == 2:
+        # La foto del catalogo todavia se esta armando. No es un error: son
+        # 60k documentos y en Spark no entran en un dia.
+        log("\nLa foto del catalogo quedo a medias; la proxima corrida "
+            "retoma donde quedo. Nada que hacer hoy.")
+        return 0
     if codigo != 0:
         log(f"\nactualizar_precios fallo (codigo {codigo}). No sigo: si salto el "
             f"freno de cobertura, regenerar la estructura escribiria contadores "
@@ -218,7 +260,9 @@ def main():
     # 4 -----------------------------------------------------------------
     titulo("4/4  Regenerando el arbol de navegacion")
     codigo, salidas["estructura"] = correr(
-        "regenerar_estructura_tandil.py", *(["--aplicar"] if aplicar else []))
+        "regenerar_estructura_tandil.py",
+        *([] if sin_cache else ["--desde-cache"]),
+        *(["--aplicar"] if aplicar else []))
     if codigo != 0:
         log(f"\nregenerar_estructura fallo (codigo {codigo}). El catalogo quedo con "
             f"precios nuevos pero el arbol y los contadores de cobertura viejos.")

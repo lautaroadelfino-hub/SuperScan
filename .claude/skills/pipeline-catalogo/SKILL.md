@@ -36,9 +36,15 @@ Frenos que ya tiene y conviene no desarmar: aborta si el recurso del portal no
 se actualizó hoy (esa URL sirve los datos de la semana pasada), si una cadena
 publica datos muy viejos, o si una cadena pierde más de la mitad de su cobertura.
 
-Costo por corrida: ~60k lecturas de Firestore (el escaneo del catálogo que hace
-`actualizar_precios`). **El tope del plan gratuito son 50k lecturas por día**, así
-que esto necesita el proyecto en Blaze.
+Costo por corrida: **~62 lecturas** de Firestore. El proyecto está en el plan
+Spark (50k lecturas/día compartidas con la app) y el catálogo tiene 60.378
+documentos, así que escanearlo no entra: `cache_catalogo.py` mantiene una foto
+local que se valida con un token y un `count()`. Un cron diario la arma por
+tramos (dos días la primera vez) y la rehace sola si se invalida.
+
+Si tocás un script que escriba en `productos`, llamá a
+`cache_catalogo.invalidar(db)` antes de escribir. Sin eso la foto queda mintiendo
+y el diff de precios saltea escrituras sin avisar.
 
 Re-correr sobre una descarga que ya está, sin volver a bajar 330 MB:
 `python refrescar_sepa.py --usar "Datos AAAA-MM-DD"`
