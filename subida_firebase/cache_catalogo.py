@@ -74,6 +74,13 @@ CAMPOS = ["precios", "categoria", "subcategoria", "marca", "en_tandil"]
 # memoria y hace que el progreso se vea.
 PAGINA = 5000
 
+# Cuantas lecturas puede gastar el pipeline por dia. La cuota del plan Spark son
+# 50.000 y las COMPARTE con la app: si el pipeline se las come, los usuarios se
+# quedan sin catalogo hasta la medianoche del Pacifico. 20.000 deja 30.000 para
+# la gente. Armar la foto de cero tarda asi 4 dias en vez de 2, que es el precio
+# correcto: la app importa mas que la velocidad del bootstrap.
+TOPE_DIARIO = 20000
+
 
 def ahora():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")

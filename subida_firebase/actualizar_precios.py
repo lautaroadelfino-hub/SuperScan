@@ -131,7 +131,7 @@ def main():
                      if "--volcar-nuevos" in sys.argv else None)
     usar_cache = "--cache" in sys.argv
     tope_lecturas = int(sys.argv[sys.argv.index("--tope-lecturas") + 1]
-                        if "--tope-lecturas" in sys.argv else 40000)
+                        if "--tope-lecturas" in sys.argv else cache_catalogo.TOPE_DIARIO)
     if "--datos" not in sys.argv:
         print("Falta --datos \"Datos AAAA-MM-DD\"")
         sys.exit(1)
@@ -181,7 +181,18 @@ def main():
         actual = {ean: f[0] for ean, f in cache["docs"].items()}
         print(f"Productos en el catalogo: {len(actual)} ({lecturas} lecturas)")
     else:
-        print("\nLeyendo el catalogo actual de Firestore...")
+        # Escanear el catalogo son 60.378 lecturas y la cuota diaria del plan
+        # Spark son 50.000, COMPARTIDAS CON LA APP: una corrida asi deja a los
+        # usuarios sin catalogo hasta la medianoche del Pacifico. Paso dos veces
+        # el 2026-09-20. Que haya que pedirlo explicitamente.
+        if "--escaneo-completo" not in sys.argv:
+            print("\nLeer el catalogo entero son ~60.000 lecturas, y la cuota "
+                  "diaria\nson 50.000 COMPARTIDAS CON LA APP: esto la deja sin "
+                  "catalogo\npor el resto del dia.\n\n"
+                  "  Usa --cache (lo normal), o --escaneo-completo si de verdad\n"
+                  "  lo necesitas y sabes que nadie va a estar usando la app.")
+            sys.exit(1)
+        print("\nLeyendo el catalogo actual de Firestore (escaneo completo)...")
         actual = {}
         for doc in db.collection(COLECCION).select(["precios"]).stream():
             actual[doc.id] = (doc.to_dict() or {}).get("precios") or {}

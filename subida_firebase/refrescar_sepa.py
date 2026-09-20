@@ -181,7 +181,7 @@ def main():
     usar = opcion("--usar")          # re-correr sobre una descarga que ya esta
     sin_cache = "--sin-cache" in argv
     solo_cache = "--solo-cache" in argv
-    tope = opcion("--tope-lecturas", "40000")
+    tope = opcion("--tope-lecturas", "20000")   # el resto de la cuota es para la app
     conservar = int(opcion("--conservar", CONSERVAR))
     frescura = int(opcion("--frescura", FRESCURA_DIAS))
 
@@ -231,7 +231,8 @@ def main():
     codigo, salidas["precios"] = correr(
         "actualizar_precios.py", "--datos", carpeta.name,
         "--volcar-nuevos", NUEVOS,
-        *([] if sin_cache else ["--cache", "--tope-lecturas", tope]),
+        *(["--escaneo-completo"] if sin_cache
+          else ["--cache", "--tope-lecturas", tope]),
         *(["--aplicar"] if aplicar else []))
     if codigo == 2:
         # La foto del catalogo todavia se esta armando. No es un error: son
