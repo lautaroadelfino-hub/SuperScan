@@ -1,0 +1,10 @@
+# Dependencias del pipeline de subida_firebase/. Son las versiones que estan
+# andando en la maquina del proyecto; las de abajo vienen como transitivas de
+# firebase-admin pero se fijan igual para que el runner de CI instale lo mismo
+# que corre localmente.
+firebase-admin==7.5.0
+requests==2.34.2
+
+# transitivas que el codigo importa por nombre
+google-api-core==2.31.0
+google-cloud-firestore==2.28.0

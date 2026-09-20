@@ -15,6 +15,34 @@ Todos los scripts usan `subida_firebase/credenciales.json` (service account,
 Admin SDK → **no** pasa por las reglas de Firestore; está gitignored, nunca
 commitear). Proyecto Firebase: `compras-super-18da9`.
 
+## Refrescar los precios (lo habitual)
+
+Automático: `.github/workflows/precios-sepa.yml`, lunes 16:00 ART. A mano:
+
+```
+cd subida_firebase && python refrescar_sepa.py            # simula
+cd subida_firebase && python refrescar_sepa.py --aplicar  # escribe
+```
+
+Encadena, **en este orden**: `bajar_sepa.py` (baja el zip del día de SEPA y lo
+filtra a las sucursales de Tandil) → `actualizar_precios.py` → `altas_nuevas.py
+--sin-ia` (encola los productos nuevos en `altas_pendientes.json`; clasificarlos
+necesita Gemini) → `regenerar_estructura_tandil.py`.
+
+`actualizar_precios` va **antes** que `regenerar_estructura`: comparten el
+documento `catalogo_meta/precios` (uno pone la fecha, el otro la cobertura).
+
+Frenos que ya tiene y conviene no desarmar: aborta si el recurso del portal no
+se actualizó hoy (esa URL sirve los datos de la semana pasada), si una cadena
+publica datos muy viejos, o si una cadena pierde más de la mitad de su cobertura.
+
+Costo por corrida: ~60k lecturas de Firestore (el escaneo del catálogo que hace
+`actualizar_precios`). **El tope del plan gratuito son 50k lecturas por día**, así
+que esto necesita el proyecto en Blaze.
+
+Re-correr sobre una descarga que ya está, sin volver a bajar 330 MB:
+`python refrescar_sepa.py --usar "Datos AAAA-MM-DD"`
+
 ## Subir / actualizar productos
 ```
 cd subida_firebase && python subir_catalogo_v2.py

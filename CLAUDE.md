@@ -62,8 +62,20 @@ JAVA_HOME='...jbr' ./gradlew.bat :app:testDebugUnitTest --tests "com.example.dat
 Admin SDK con `credenciales.json` (service account, **no** pasa por reglas; gitignored).
 Todos simulan por defecto y escriben solo con `--aplicar`.
 
-Refresco periódico con una descarga nueva de SEPA (carpetas `Datos AAAA-MM-DD/`,
-una subcarpeta por comercio con `productos.csv`; gitignored por tamaño):
+**Refresco automático semanal**: `.github/workflows/precios-sepa.yml` corre los
+lunes 16:00 ART y llama a `refrescar_sepa.py`, que encadena las cuatro etapas de
+abajo en orden. A mano: `python refrescar_sepa.py` simula y `--aplicar` escribe.
+- `bajar_sepa.py` — baja el zip del día del portal (recurso fijo por día de la
+  semana, ~330 MB) y lo deja como `Datos AAAA-MM-DD/`, **filtrado a las
+  sucursales de Tandil**: 1,2 GB pasan a ~6 MB y el resto del pipeline no se
+  entera (misma cabecera byte a byte). Aborta si el recurso no se actualizó hoy
+  —esa URL sirve la semana pasada— o si una cadena publica datos muy viejos.
+- El orden importa: `actualizar_precios` **antes** que `regenerar_estructura`,
+  porque comparten el documento `catalogo_meta/precios`.
+- `sepa_comun.py` tiene el mapa comercio→cadena, las sucursales y los índices de
+  columna. No duplicar esas constantes en ningún lado.
+
+Etapas (también se pueden correr sueltas sobre una descarga manual):
 - `actualizar_precios.py --datos "Datos AAAA-MM-DD"` — refresca `precios`,
   `precio_min`, `cadena_min` y escribe `catalogo_meta/precios`. Si una cadena dejó
   de publicar un producto le **saca** ese precio (mezclar precios de fechas

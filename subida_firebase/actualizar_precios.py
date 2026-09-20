@@ -22,6 +22,10 @@ categoria no se puede navegar. El script los cuenta y avisa.
 Uso (simula por defecto, no escribe nada):
     python actualizar_precios.py --datos "Datos 2026-07-31"
     python actualizar_precios.py --datos "Datos 2026-07-31" --aplicar
+
+Con --volcar-nuevos <archivo> deja ahi los EAN de SEPA que no estan en el
+catalogo, para que altas_nuevas.py los use sin volver a escanear los ~60k
+documentos (ver refrescar_sepa.py).
 """
 import sys
 from pathlib import Path
@@ -39,41 +43,18 @@ CREDENCIALES = CARPETA / "credenciales.json"
 COLECCION = "productos"
 LOTE = 400
 
-# id_comercio de SEPA -> (id_sucursal de Tandil, nombre de cadena en el map
-# `precios`). Las sucursales son las mismas que usa corregir_nombres.py: ver
-# Id_sucursal_tandil.txt.
-COMERCIOS = {
-    "9": (711, "vea"),
-    "10": (31, "carrefour"),
-    "13": (149, "coop_obrera"),
-    "15": (273, "dia"),
-}
-
-# Columnas reales del formato SEPA (el EAN esta en id_producto, no en
-# productos_ean, que trae un placeholder "1"). Indices base 0:
-COL_SUCURSAL, COL_EAN, COL_PRECIO = 2, 3, 9
+# Que comercio es cada cadena, en que sucursal miramos y donde estan las
+# columnas: todo vive en sepa_comun.py, que no depende de firebase_admin para
+# que bajar_sepa.py pueda usarlo sin credenciales. Se re-exporta porque
+# altas_nuevas.py los importa desde aca.
+from sepa_comun import (            # noqa: F401  (re-export)
+    COMERCIOS, COL_SUCURSAL, COL_EAN, COL_DESC, COL_MARCA, COL_PRECIO,
+    carpeta_de, norm_ean, num, fecha_por_cadena,
+)
 
 # Si una cadena trae menos de esta fraccion de los productos que ya tenia en el
 # catalogo, algo salio mal con la descarga: se aborta antes de borrar precios.
 UMBRAL_SEGURIDAD = 0.5
-
-
-def num(v):
-    try:
-        f = float((v or "").replace(",", "."))
-        return f if f > 0 else None
-    except ValueError:
-        return None
-
-
-def norm_ean(raw):
-    d = "".join(c for c in (raw or "") if c.isdigit())
-    return d.zfill(13) if 8 <= len(d) <= 13 else None
-
-
-def carpeta_de(datos, id_comercio):
-    candidatas = sorted(datos.glob(f"*comercio-sepa-{id_comercio}_*"))
-    return candidatas[0] if candidatas else None
 
 
 def fecha_de_los_datos(datos):
@@ -82,21 +63,9 @@ def fecha_de_los_datos(datos):
     ve un solo numero para toda la app. Sale de comercio_ultima_actualizacion
     de cada SEPA; si no se puede leer, cae al nombre de la carpeta."""
     import re
-    fechas = []
-    for id_comercio in COMERCIOS:
-        carpeta = carpeta_de(datos, id_comercio)
-        if carpeta is None:
-            continue
-        archivo = carpeta / "comercio.csv"
-        if not archivo.exists():
-            continue
-        with open(archivo, encoding="utf-8-sig", errors="replace") as f:
-            next(f, None)                      # encabezado
-            partes = (next(f, "") or "").split("|")
-        if len(partes) > 6 and partes[6][:4].isdigit():
-            fechas.append(partes[6][:10])
+    fechas = fecha_por_cadena(datos)
     if fechas:
-        return min(fechas)
+        return min(fechas.values())
     m = re.search(r"(\d{4}-\d{2}-\d{2})", datos.name)
     return m.group(1) if m else None
 
@@ -114,7 +83,8 @@ def escribir_meta(db, datos, cadenas):
         "origen": datos.name,
         "cadenas": sorted(cadenas),
         "actualizado": firestore.SERVER_TIMESTAMP,
-    })
+    }, merge=True)   # merge: los contadores de cobertura los pone
+                     # regenerar_estructura_tandil.py y no hay que pisarlos
     return fecha
 
 
@@ -154,6 +124,8 @@ def leer_precios(datos):
 
 def main():
     aplicar = "--aplicar" in sys.argv
+    volcar_nuevos = (sys.argv[sys.argv.index("--volcar-nuevos") + 1]
+                     if "--volcar-nuevos" in sys.argv else None)
     if "--datos" not in sys.argv:
         print("Falta --datos \"Datos AAAA-MM-DD\"")
         sys.exit(1)
@@ -216,7 +188,7 @@ def main():
     # --- Que cambia ---
     pendientes = []
     sin_cambios = quitados = 0
-    altas_nuevas = sum(1 for ean in nuevos if ean not in actual)
+    sin_catalogar = sorted(ean for ean in nuevos if ean not in actual)
 
     for ean, viejos in actual.items():
         del_ean = nuevos.get(ean, {})
@@ -253,7 +225,14 @@ def main():
     print(f"\nProductos del catalogo sin cambios: {sin_cambios}")
     print(f"Productos a actualizar: {len(pendientes)}")
     print(f"  precios de cadena que se dan de baja: {quitados}")
-    print(f"EAN nuevos que NO estan en el catalogo (no se dan de alta): {altas_nuevas}")
+    print(f"EAN nuevos que NO estan en el catalogo (no se dan de alta): {len(sin_catalogar)}")
+
+    # Ya tenemos la lista y nos costo escanear el catalogo entero: dejarla en
+    # disco le ahorra a altas_nuevas.py repetir esas ~60k lecturas. Se escribe
+    # tambien en simulacion, porque es un archivo local y no toca Firestore.
+    if volcar_nuevos:
+        (CARPETA / volcar_nuevos).write_text("\n".join(sin_catalogar), encoding="utf-8")
+        print(f"  lista volcada en {volcar_nuevos}")
 
     if pendientes:
         print("\n--- 5 ejemplos ---")

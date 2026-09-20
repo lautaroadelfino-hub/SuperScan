@@ -19,20 +19,28 @@ como "Sin clasificar" y ensuciarian la navegacion. Quedan para la proxima.
 Despues de aplicar hay que regenerar el arbol de navegacion:
     python regenerar_estructura_tandil.py
 
+Con --sin-ia no se llama a Gemini ni se da de alta nada: los productos nuevos
+quedan encolados en altas_pendientes.json con nombre, marca y precios ya
+resueltos, listos para clasificar y subir cuando haya cuota. Es el modo que usa
+el refresco semanal automatico, que no puede depender de la IA.
+
 Uso (simula por defecto, no escribe nada):
     python altas_nuevas.py --datos "Datos 2026-07-31"
     python altas_nuevas.py --datos "Datos 2026-07-31" --aplicar
+    python altas_nuevas.py --datos "Datos 2026-07-31" --sin-ia
+    python altas_nuevas.py --datos "..." --sin-ia --nuevos nuevos.txt
 """
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import firebase_admin
 import requests
 from firebase_admin import credentials, firestore
 
-from actualizar_precios import COMERCIOS, carpeta_de, norm_ean, num
+from actualizar_precios import COMERCIOS, carpeta_de, norm_ean, num, fecha_de_los_datos
 from clasificar_categorias import LOTE, PAUSA, api_key, clasificar_lote
 from corregir_nombres import elegir_descripcion, elegir_marca, es_outlier, limpiar_desc, ESPACIOS
 from tokens_busqueda import tokenizar
@@ -45,6 +53,7 @@ except ImportError:
 CARPETA = Path(__file__).resolve().parent
 CREDENCIALES = CARPETA / "credenciales.json"
 ESTADO = CARPETA / "categorias_altas.json"   # resumible: se puede cortar y retomar
+PENDIENTES = CARPETA / "altas_pendientes.json"   # cola de --sin-ia
 COLECCION = "productos"
 LOTE_ESCRITURA = 400
 
@@ -103,6 +112,9 @@ def leer_sepa(datos):
 
 def main():
     aplicar = "--aplicar" in sys.argv
+    sin_ia = "--sin-ia" in sys.argv
+    lista_nuevos = (sys.argv[sys.argv.index("--nuevos") + 1]
+                    if "--nuevos" in sys.argv else None)
     if "--datos" not in sys.argv:
         print("Falta --datos \"Datos AAAA-MM-DD\"")
         sys.exit(1)
@@ -115,19 +127,34 @@ def main():
     sepa = leer_sepa(datos)
     print(f"EAN de Tandil en la descarga: {len(sepa)}")
 
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
-    db = firestore.client()
+    db = None
+    if lista_nuevos:
+        # actualizar_precios.py acaba de escanear el catalogo entero para armar
+        # el diff de precios y, de paso, ya sabe que EAN de SEPA no estaban.
+        # Reusar esa lista evita releer los ~60k documentos: es la mitad de las
+        # lecturas de todo el refresco, y el catalogo no cambio en el medio.
+        ruta = CARPETA / lista_nuevos
+        if not ruta.exists():
+            print(f"No existe {ruta}. Corre antes "
+                  f"actualizar_precios.py --volcar-nuevos {lista_nuevos}")
+            sys.exit(1)
+        candidatos = [e.strip() for e in ruta.read_text(encoding="utf-8").split() if e.strip()]
+        print(f"\nEAN nuevos segun {ruta.name}: {len(candidatos)} (no releo el catalogo)")
+        nuevos = {e: sepa[e] for e in candidatos if e in sepa}
+    else:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
+        db = firestore.client()
 
-    print("\nLeyendo los EAN que ya estan en el catalogo...")
-    existentes = set()
-    for doc in db.collection(COLECCION).select([]).stream():
-        existentes.add(doc.id)
-        if len(existentes) % 20000 == 0:
-            print(f"  {len(existentes)} leidos...", flush=True)
-    print(f"Productos en el catalogo: {len(existentes)}")
+        print("\nLeyendo los EAN que ya estan en el catalogo...")
+        existentes = set()
+        for doc in db.collection(COLECCION).select([]).stream():
+            existentes.add(doc.id)
+            if len(existentes) % 20000 == 0:
+                print(f"  {len(existentes)} leidos...", flush=True)
+        print(f"Productos en el catalogo: {len(existentes)}")
 
-    nuevos = {e: v for e, v in sepa.items() if e not in existentes}
+        nuevos = {e: v for e, v in sepa.items() if e not in existentes}
     # Sin precio en ninguna cadena no aporta nada al comparador
     nuevos = {e: v for e, v in nuevos.items() if any(t[2] for t in v.values())}
     internos = {e: v for e, v in nuevos.items() if not es_codigo_global(e)}
@@ -152,6 +179,45 @@ def main():
             "precios": {c: t[2] for c, t in variantes.items() if t[2]},
             "revisar": es_outlier(variantes),
         }
+
+    # --- Sin IA: se encolan y se termina aca ---
+    if sin_ia:
+        fecha = fecha_de_los_datos(datos)
+        cola = {
+            "fecha_datos": fecha,
+            "origen": datos.name,
+            "generado": datetime.now().isoformat(timespec="seconds"),
+            "cantidad": len(fichas),
+            "productos": [dict(ean=e, **f) for e, f in sorted(fichas.items())],
+        }
+        PENDIENTES.write_text(json.dumps(cola, ensure_ascii=False, indent=2),
+                              encoding="utf-8")
+        print(f"\nEncolados {len(fichas)} productos nuevos en {PENDIENTES.name}")
+        print("  (no se dio de alta ninguno: sin categoria no se pueden navegar)")
+        print(f"  marcados para revisar por precio outlier: "
+              f"{sum(1 for f in fichas.values() if f['revisar'])}")
+        for ean, f in list(sorted(fichas.items()))[:6]:
+            print(f"    {ean}  {f['descripcion'][:48]}  {f['precios']}")
+        if aplicar:
+            if db is None:
+                if not firebase_admin._apps:
+                    firebase_admin.initialize_app(
+                        credentials.Certificate(str(CREDENCIALES)))
+                db = firestore.client()
+            # Un resumen chico en Firestore para tener el registro fuera de la
+            # maquina que corrio el job. El JSON entero no entra: un documento
+            # tiene un tope de 1 MB.
+            db.collection("catalogo_meta").document("altas_pendientes").set({
+                "fecha_datos": fecha,
+                "cantidad": len(fichas),
+                "ejemplos": [
+                    {"ean": e, "descripcion": f["descripcion"]}
+                    for e, f in list(sorted(fichas.items()))[:10]
+                ],
+                "actualizado": firestore.SERVER_TIMESTAMP,
+            })
+            print(f"  catalogo_meta/altas_pendientes actualizado")
+        return
 
     # --- Categorias (Gemini, resumible) ---
     estado = json.loads(ESTADO.read_text(encoding="utf-8")) if ESTADO.exists() else {}
@@ -223,6 +289,11 @@ def main():
         return
 
     print(f"\nEscribiendo {len(docs)} productos nuevos...")
+    if db is None:
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
+        db = firestore.client()
+
     lote = db.batch()
     n = escritos = 0
     for ean, campos in docs.items():
