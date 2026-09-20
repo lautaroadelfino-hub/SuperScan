@@ -111,6 +111,7 @@ def armar_doc(fila):
 
 
 def borrar(db):
+    cache_catalogo.invalidar(db)   # vacia la coleccion: la foto local queda vieja
     print(f"Borrando '{COLECCION}'...")
     total = 0
     while True:
@@ -149,6 +150,8 @@ def cargar_imagenes():
 
 
 def subir(db):
+    cache_catalogo.invalidar(db)   # rehace la coleccion: la foto local queda vieja
+
     imagenes = cargar_imagenes()
     if imagenes:
         print(f"({len(imagenes)} imagenes de Open Food Facts se incluyen en la subida)")

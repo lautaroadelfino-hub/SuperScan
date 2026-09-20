@@ -37,6 +37,10 @@ subida_firebase/catalogo_final_firestore.csv
 subida_firebase/categorias_gemini.json
 subida_firebase/tandil_nombres_cache.json
 subida_firebase/Datos*/
+subida_firebase/*.zip
+subida_firebase/altas_pendientes.json
+subida_firebase/nuevos_sepa.txt
+subida_firebase/cache_catalogo.json.gz
 subida_firebase/sim_nombres.txt
 
 # Scripts sueltos de prueba en la raiz (scratch, no son la suite de tests)

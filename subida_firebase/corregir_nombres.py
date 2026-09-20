@@ -150,6 +150,8 @@ def main():
     from firebase_admin import credentials, firestore
     from google.api_core.exceptions import NotFound
 
+    import cache_catalogo
+
     firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
     db = firestore.client()
 
@@ -222,6 +224,11 @@ def main():
     if not aplicar:
         print(f"\n(simulación: no se escribió nada. Correr con --aplicar)")
         return
+
+    # La foto local del catalogo (cache_catalogo.py) deja de valer: este script
+    # escribe marca y en_tandil, que la foto guarda. Sin invalidarla, el diff de
+    # actualizar_precios.py saltearia escrituras en silencio.
+    cache_catalogo.invalidar(db)
 
     # set(merge=True) en vez de update(): no falla si algún documento no existe
     print(f"\nEscribiendo {total} productos en Firestore...")

@@ -22,12 +22,18 @@ categoria no se puede navegar. El script los cuenta y avisa.
 Uso (simula por defecto, no escribe nada):
     python actualizar_precios.py --datos "Datos 2026-07-31"
     python actualizar_precios.py --datos "Datos 2026-07-31" --aplicar
+
+Con --volcar-nuevos <archivo> deja ahi los EAN de SEPA que no estan en el
+catalogo, para que altas_nuevas.py los use sin volver a escanear los ~60k
+documentos (ver refrescar_sepa.py).
 """
 import sys
 from pathlib import Path
 
 import firebase_admin
 from firebase_admin import credentials, firestore
+
+import cache_catalogo
 
 try:
     from google.api_core.exceptions import ResourceExhausted
@@ -39,41 +45,18 @@ CREDENCIALES = CARPETA / "credenciales.json"
 COLECCION = "productos"
 LOTE = 400
 
-# id_comercio de SEPA -> (id_sucursal de Tandil, nombre de cadena en el map
-# `precios`). Las sucursales son las mismas que usa corregir_nombres.py: ver
-# Id_sucursal_tandil.txt.
-COMERCIOS = {
-    "9": (711, "vea"),
-    "10": (31, "carrefour"),
-    "13": (149, "coop_obrera"),
-    "15": (273, "dia"),
-}
-
-# Columnas reales del formato SEPA (el EAN esta en id_producto, no en
-# productos_ean, que trae un placeholder "1"). Indices base 0:
-COL_SUCURSAL, COL_EAN, COL_PRECIO = 2, 3, 9
+# Que comercio es cada cadena, en que sucursal miramos y donde estan las
+# columnas: todo vive en sepa_comun.py, que no depende de firebase_admin para
+# que bajar_sepa.py pueda usarlo sin credenciales. Se re-exporta porque
+# altas_nuevas.py los importa desde aca.
+from sepa_comun import (            # noqa: F401  (re-export)
+    COMERCIOS, COL_SUCURSAL, COL_EAN, COL_DESC, COL_MARCA, COL_PRECIO,
+    carpeta_de, norm_ean, num, fecha_por_cadena,
+)
 
 # Si una cadena trae menos de esta fraccion de los productos que ya tenia en el
 # catalogo, algo salio mal con la descarga: se aborta antes de borrar precios.
 UMBRAL_SEGURIDAD = 0.5
-
-
-def num(v):
-    try:
-        f = float((v or "").replace(",", "."))
-        return f if f > 0 else None
-    except ValueError:
-        return None
-
-
-def norm_ean(raw):
-    d = "".join(c for c in (raw or "") if c.isdigit())
-    return d.zfill(13) if 8 <= len(d) <= 13 else None
-
-
-def carpeta_de(datos, id_comercio):
-    candidatas = sorted(datos.glob(f"*comercio-sepa-{id_comercio}_*"))
-    return candidatas[0] if candidatas else None
 
 
 def fecha_de_los_datos(datos):
@@ -82,26 +65,14 @@ def fecha_de_los_datos(datos):
     ve un solo numero para toda la app. Sale de comercio_ultima_actualizacion
     de cada SEPA; si no se puede leer, cae al nombre de la carpeta."""
     import re
-    fechas = []
-    for id_comercio in COMERCIOS:
-        carpeta = carpeta_de(datos, id_comercio)
-        if carpeta is None:
-            continue
-        archivo = carpeta / "comercio.csv"
-        if not archivo.exists():
-            continue
-        with open(archivo, encoding="utf-8-sig", errors="replace") as f:
-            next(f, None)                      # encabezado
-            partes = (next(f, "") or "").split("|")
-        if len(partes) > 6 and partes[6][:4].isdigit():
-            fechas.append(partes[6][:10])
+    fechas = fecha_por_cadena(datos)
     if fechas:
-        return min(fechas)
+        return min(fechas.values())
     m = re.search(r"(\d{4}-\d{2}-\d{2})", datos.name)
     return m.group(1) if m else None
 
 
-def escribir_meta(db, datos, cadenas):
+def escribir_meta(db, datos, cadenas, cache_token=None):
     """catalogo_meta/precios: la app lo lee para mostrar 'precios al 31/07'
     arriba de todo. Sin esto no hay forma de saber si el dato es de ayer o de
     hace tres meses."""
@@ -113,8 +84,10 @@ def escribir_meta(db, datos, cadenas):
         "fecha_datos": fecha,
         "origen": datos.name,
         "cadenas": sorted(cadenas),
+        "cache_token": cache_token,
         "actualizado": firestore.SERVER_TIMESTAMP,
-    })
+    }, merge=True)   # merge: los contadores de cobertura los pone
+                     # regenerar_estructura_tandil.py y no hay que pisarlos
     return fecha
 
 
@@ -154,6 +127,11 @@ def leer_precios(datos):
 
 def main():
     aplicar = "--aplicar" in sys.argv
+    volcar_nuevos = (sys.argv[sys.argv.index("--volcar-nuevos") + 1]
+                     if "--volcar-nuevos" in sys.argv else None)
+    usar_cache = "--cache" in sys.argv
+    tope_lecturas = int(sys.argv[sys.argv.index("--tope-lecturas") + 1]
+                        if "--tope-lecturas" in sys.argv else cache_catalogo.TOPE_DIARIO)
     if "--datos" not in sys.argv:
         print("Falta --datos \"Datos AAAA-MM-DD\"")
         sys.exit(1)
@@ -183,13 +161,44 @@ def main():
         firebase_admin.initialize_app(credentials.Certificate(str(CREDENCIALES)))
     db = firestore.client()
 
-    print("\nLeyendo el catalogo actual de Firestore...")
-    actual = {}
-    for doc in db.collection(COLECCION).select(["precios"]).stream():
-        actual[doc.id] = (doc.to_dict() or {}).get("precios") or {}
-        if len(actual) % 20000 == 0:
-            print(f"  {len(actual)} leidos...", flush=True)
-    print(f"Productos en el catalogo: {len(actual)}")
+    cache = None
+    if usar_cache:
+        # Plan Spark: 50k lecturas por dia, compartidas con la app. Escanear los
+        # 60k documentos acá y otros 25k en regenerar_estructura no entra. La
+        # foto local cuesta ~62 lecturas validarla (ver cache_catalogo.py).
+        print("\nValidando la foto local del catalogo...")
+        try:
+            cache, sirve, lecturas = cache_catalogo.asegurar(db, tope_lecturas)
+        except ResourceExhausted:
+            print("\nSe acabo la cuota diaria de lecturas de Firestore. "
+                  "La foto retoma manana donde quedo.")
+            sys.exit(2)
+        if not sirve:
+            print("\nNo hay una foto completa del catalogo todavia, asi que no "
+                  "puedo calcular el diff sin arriesgarme a saltear escrituras. "
+                  "Volve a correr (la proxima retoma donde quedo).")
+            sys.exit(2)
+        actual = {ean: f[0] for ean, f in cache["docs"].items()}
+        print(f"Productos en el catalogo: {len(actual)} ({lecturas} lecturas)")
+    else:
+        # Escanear el catalogo son 60.378 lecturas y la cuota diaria del plan
+        # Spark son 50.000, COMPARTIDAS CON LA APP: una corrida asi deja a los
+        # usuarios sin catalogo hasta la medianoche del Pacifico. Paso dos veces
+        # el 2026-09-20. Que haya que pedirlo explicitamente.
+        if "--escaneo-completo" not in sys.argv:
+            print("\nLeer el catalogo entero son ~60.000 lecturas, y la cuota "
+                  "diaria\nson 50.000 COMPARTIDAS CON LA APP: esto la deja sin "
+                  "catalogo\npor el resto del dia.\n\n"
+                  "  Usa --cache (lo normal), o --escaneo-completo si de verdad\n"
+                  "  lo necesitas y sabes que nadie va a estar usando la app.")
+            sys.exit(1)
+        print("\nLeyendo el catalogo actual de Firestore (escaneo completo)...")
+        actual = {}
+        for doc in db.collection(COLECCION).select(["precios"]).stream():
+            actual[doc.id] = (doc.to_dict() or {}).get("precios") or {}
+            if len(actual) % 20000 == 0:
+                print(f"  {len(actual)} leidos...", flush=True)
+        print(f"Productos en el catalogo: {len(actual)}")
 
     # Guardrail: una cadena que se desploma es un error de descarga, no una
     # liquidacion. Mejor abortar que borrarle los precios a media base.
@@ -216,7 +225,7 @@ def main():
     # --- Que cambia ---
     pendientes = []
     sin_cambios = quitados = 0
-    altas_nuevas = sum(1 for ean in nuevos if ean not in actual)
+    sin_catalogar = sorted(ean for ean in nuevos if ean not in actual)
 
     for ean, viejos in actual.items():
         del_ean = nuevos.get(ean, {})
@@ -253,7 +262,14 @@ def main():
     print(f"\nProductos del catalogo sin cambios: {sin_cambios}")
     print(f"Productos a actualizar: {len(pendientes)}")
     print(f"  precios de cadena que se dan de baja: {quitados}")
-    print(f"EAN nuevos que NO estan en el catalogo (no se dan de alta): {altas_nuevas}")
+    print(f"EAN nuevos que NO estan en el catalogo (no se dan de alta): {len(sin_catalogar)}")
+
+    # Ya tenemos la lista y nos costo escanear el catalogo entero: dejarla en
+    # disco le ahorra a altas_nuevas.py repetir esas ~60k lecturas. Se escribe
+    # tambien en simulacion, porque es un archivo local y no toca Firestore.
+    if volcar_nuevos:
+        (CARPETA / volcar_nuevos).write_text("\n".join(sin_catalogar), encoding="utf-8")
+        print(f"  lista volcada en {volcar_nuevos}")
 
     if pendientes:
         print("\n--- 5 ejemplos ---")
@@ -266,6 +282,13 @@ def main():
     if not aplicar:
         print("\n(simulacion: no se escribio nada. Correr con --aplicar)")
         return
+
+    # La foto deja de valer desde el primer batch: si la corrida se corta por
+    # cuota a mitad de camino, Firestore queda con precios que la foto no tiene.
+    # Se invalida ANTES de escribir y se revalida al final; un corte en el medio
+    # obliga a reescanear, que es lento pero correcto.
+    if cache is not None:
+        cache_catalogo.invalidar(db)
 
     print(f"\nEscribiendo {len(pendientes)} productos...")
     lote = db.batch()
@@ -289,7 +312,20 @@ def main():
         lote.commit()
         escritos += n
 
-    fecha = escribir_meta(db, datos, cadenas_en_esta_corrida)
+    # Todo escrito: la foto vuelve a coincidir con Firestore. Se le aplica el
+    # mismo diff que acabamos de mandar y se sella con un token nuevo.
+    token = None
+    if cache is not None:
+        for ean, campos in pendientes:
+            if ean in cache["docs"]:
+                cache["docs"][ean][0] = campos["precios"]
+        token = cache_catalogo.nuevo_token()
+        cache["token"] = token
+        tam = cache_catalogo.guardar(cache)
+        print(f"Foto del catalogo actualizada ({tam / 1024 / 1024:.1f} MB).")
+        cache_catalogo.subir_a_storage()
+
+    fecha = escribir_meta(db, datos, cadenas_en_esta_corrida, token)
     print(f"Listo: {escritos} productos con precios al dia (datos del {fecha}).")
 
 
